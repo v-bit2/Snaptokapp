@@ -1,0 +1,6 @@
+{
+  "name": "SnapTok",
+  "description": "Download TikTok videos without watermark directly to device gallery with instant link parsing, history, and background service",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
