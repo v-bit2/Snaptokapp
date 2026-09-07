@@ -17,7 +17,31 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
+
+sealed interface DownloadProgressEvent {
+    data class Progress(
+        val url: String,
+        val percent: Int,
+        val downloadedBytes: Long,
+        val totalBytes: Long,
+        val info: TikTokVideoInfo
+    ) : DownloadProgressEvent
+
+    data class Success(
+        val url: String,
+        val outcome: VideoDownloader.DownloadOutcome
+    ) : DownloadProgressEvent
+
+    data class Error(
+        val url: String,
+        val message: String
+    ) : DownloadProgressEvent
+}
 
 class VideoDownloadService : Service() {
 
@@ -33,7 +57,20 @@ class VideoDownloadService : Service() {
         const val EXTRA_VIDEO_URL = "EXTRA_VIDEO_URL"
         const val EXTRA_PREFER_HD = "EXTRA_PREFER_HD"
 
-        fun startDownload(context: Context, videoUrl: String, preferHd: Boolean = true) {
+        private val _progressEvents = MutableSharedFlow<DownloadProgressEvent>(replay = 1, extraBufferCapacity = 64)
+        val progressEvents: SharedFlow<DownloadProgressEvent> = _progressEvents.asSharedFlow()
+
+        private val preloadedInfoCache = ConcurrentHashMap<String, TikTokVideoInfo>()
+
+        fun startDownload(
+            context: Context,
+            videoUrl: String,
+            preferHd: Boolean = true,
+            preloadedInfo: TikTokVideoInfo? = null
+        ) {
+            if (preloadedInfo != null) {
+                preloadedInfoCache[videoUrl] = preloadedInfo
+            }
             val intent = Intent(context, VideoDownloadService::class.java).apply {
                 action = ACTION_START_DOWNLOAD
                 putExtra(EXTRA_VIDEO_URL, videoUrl)
@@ -70,38 +107,52 @@ class VideoDownloadService : Service() {
 
     private fun processDownload(url: String, preferHd: Boolean) {
         serviceScope.launch {
-            updateNotification("Fetching video information…", 0, true)
-            val infoResult = TikwmApiService.fetchVideoInfo(url)
+            val cached = preloadedInfoCache[url]
+            if (cached != null) {
+                downloadVideo(url, cached, preferHd)
+            } else {
+                updateNotification("Fetching video information…", 0, true)
+                val infoResult = TikwmApiService.fetchVideoInfo(url)
 
-            infoResult.fold(
-                onSuccess = { info ->
-                    downloadVideo(info, preferHd)
-                },
-                onFailure = { error ->
-                    showFailedNotification(error.localizedMessage ?: "Failed to fetch video details")
-                    stopForeground(false)
-                    stopSelf()
-                }
-            )
+                infoResult.fold(
+                    onSuccess = { info ->
+                        downloadVideo(url, info, preferHd)
+                    },
+                    onFailure = { error ->
+                        val errMsg = error.localizedMessage ?: "Failed to fetch video details"
+                        showFailedNotification(errMsg)
+                        _progressEvents.tryEmit(DownloadProgressEvent.Error(url, errMsg))
+                        stopForeground(false)
+                        stopSelf()
+                    }
+                )
+            }
         }
     }
 
-    private suspend fun downloadVideo(info: TikTokVideoInfo, preferHd: Boolean) {
+    private suspend fun downloadVideo(url: String, info: TikTokVideoInfo, preferHd: Boolean) {
         updateNotification("Downloading: ${info.authorUsername}… 0%", 0, false)
+        _progressEvents.tryEmit(DownloadProgressEvent.Progress(url, 0, 0L, info.estimatedSizeBytes, info))
 
-        val result = downloader.downloadVideo(info, preferHd) { percent, bytesWritten, _ ->
+        val result = downloader.downloadVideo(info, preferHd) { percent, bytesWritten, totalBytes ->
             val formattedSize = MediaSaver.formatBytes(bytesWritten)
             updateNotification("Downloading ${info.authorUsername}… $percent% ($formattedSize)", percent, false)
+            _progressEvents.tryEmit(DownloadProgressEvent.Progress(url, percent, bytesWritten, totalBytes, info))
         }
 
         result.fold(
             onSuccess = { outcome ->
                 showCompleteNotification(outcome.videoInfo.title, outcome.uriString, outcome.filePath)
+                _progressEvents.tryEmit(DownloadProgressEvent.Success(url, outcome))
+                preloadedInfoCache.remove(url)
                 stopForeground(false)
                 stopSelf()
             },
             onFailure = { error ->
-                showFailedNotification(error.localizedMessage ?: "Download failed")
+                val errMsg = error.localizedMessage ?: "Download failed"
+                showFailedNotification(errMsg)
+                _progressEvents.tryEmit(DownloadProgressEvent.Error(url, errMsg))
+                preloadedInfoCache.remove(url)
                 stopForeground(false)
                 stopSelf()
             }
@@ -151,10 +202,15 @@ class VideoDownloadService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val displayTitle = title.ifBlank { "TikTok Video" }
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Download Complete!")
-            .setContentText("Saved to Gallery: $title")
+            .setContentTitle("Download complete — tap to view")
+            .setContentText("Saved to Gallery: $displayTitle")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("Saved to Gallery: $displayTitle\nDownload complete — tap to view")
+            )
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)

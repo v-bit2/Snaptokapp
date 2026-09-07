@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.storage.MediaSaver
+import com.example.ui.ShareOverlayActivity
 import com.example.ui.components.ShareOverlayDialog
 import com.example.ui.components.SnapTokBottomNavBar
 import com.example.ui.components.VideoPlayerDialog
@@ -203,10 +204,13 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
         if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") {
-            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
-            if (sharedText.isNotBlank()) {
-                viewModel.handleIncomingShare(sharedText)
+            val shareOverlayIntent = Intent(this, ShareOverlayActivity::class.java).apply {
+                action = Intent.ACTION_SEND
+                type = "text/plain"
+                putExtras(intent)
             }
+            startActivity(shareOverlayIntent)
+            finish()
         }
     }
 }

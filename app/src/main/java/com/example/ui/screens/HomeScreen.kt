@@ -97,7 +97,7 @@ fun HomeScreen(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // App Header / Hero Branding
+        // App Header / Hero Branding (Matching Flutter UI)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -105,37 +105,33 @@ fun HomeScreen(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .size(34.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(CoralPrimary, CoralVariant)
-                            )
-                        ),
+                        .background(CoralPrimary),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Download,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                    Text(
+                        text = "ST",
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 13.sp
                     )
                 }
 
                 Column {
                     Text(
                         text = "SnapTok",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Black,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "TikTok No-Watermark Downloader",
-                        fontSize = 11.sp,
+                        text = "No Watermark Downloader",
+                        fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -145,22 +141,22 @@ fun HomeScreen(
             FilterChip(
                 selected = preferHd,
                 onClick = onTogglePreferHd,
-                label = { Text("HD", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                label = { Text("HD Quality", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Hd,
                         contentDescription = null,
-                        modifier = Modifier.size(14.dp),
+                        modifier = Modifier.size(15.dp),
                         tint = if (preferHd) CoralPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
                 colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = CoralPrimary.copy(alpha = 0.15f),
+                    selectedContainerColor = CoralPrimary.copy(alpha = 0.18f),
                     selectedLabelColor = CoralPrimary
                 ),
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
-                    .height(32.dp)
+                    .height(34.dp)
                     .testTag("hd_quality_toggle")
             )
         }
@@ -219,39 +215,79 @@ fun HomeScreen(
             }
         }
 
-        // Main Input Card
+        // Main Input Card (Matching Flutter Home Screen Layout)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .border(
                     width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(14.dp)
+                    color = MaterialTheme.colorScheme.outline,
+                    shape = RoundedCornerShape(20.dp)
                 ),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Paste TikTok Link",
+                    text = "Download TikToks\nWithout Watermark",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    lineHeight = 26.sp
+                )
+                Text(
+                    text = "Paste a video link or share directly from the TikTok app.",
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 OutlinedTextField(
                     value = urlInput,
                     onValueChange = onUrlChanged,
-                    placeholder = { Text("https://www.tiktok.com/@user/video/…", fontSize = 12.sp) },
+                    placeholder = { Text("Paste TikTok video link here…", fontSize = 13.sp) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("url_input_field"),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-                    shape = RoundedCornerShape(8.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                    shape = RoundedCornerShape(14.dp),
                     singleLine = true,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (urlInput.isNotBlank()) {
+                                IconButton(
+                                    onClick = { onUrlChanged("") },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear URL", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            IconButton(
+                                onClick = onPasteClick,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("paste_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentPaste,
+                                    contentDescription = "Paste from clipboard",
+                                    tint = TealAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Uri,
                         imeAction = ImeAction.Done
@@ -262,73 +298,33 @@ fun HomeScreen(
                             onFetchClick()
                         }
                     ),
-                    trailingIcon = {
-                        if (urlInput.isNotBlank()) {
-                            IconButton(
-                                onClick = { onUrlChanged("") },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear URL", modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = CoralPrimary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     )
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Button(
+                    onClick = {
+                        keyboardController?.hide()
+                        onFetchClick()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("fetch_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary)
                 ) {
-                    // Paste Button
-                    Button(
-                        onClick = onPasteClick,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp)
-                            .testTag("paste_button"),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ContentPaste,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Paste Link", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-
-                    // Fetch & Download Button
-                    Button(
-                        onClick = {
-                            keyboardController?.hide()
-                            onFetchClick()
-                        },
-                        modifier = Modifier
-                            .weight(1.2f)
-                            .height(38.dp)
-                            .testTag("fetch_button"),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Fetch Video", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Fetch & Download Video", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
