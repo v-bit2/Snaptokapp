@@ -122,7 +122,12 @@ class VideoDownloadService : Service() {
                         val errMsg = error.localizedMessage ?: "Failed to fetch video details"
                         showFailedNotification(errMsg)
                         _progressEvents.tryEmit(DownloadProgressEvent.Error(url, errMsg))
-                        stopForeground(false)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            stopForeground(STOP_FOREGROUND_DETACH)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            stopForeground(false)
+                        }
                         stopSelf()
                     }
                 )
@@ -145,7 +150,12 @@ class VideoDownloadService : Service() {
                 showCompleteNotification(outcome.videoInfo.title, outcome.uriString, outcome.filePath)
                 _progressEvents.tryEmit(DownloadProgressEvent.Success(url, outcome))
                 preloadedInfoCache.remove(url)
-                stopForeground(false)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(false)
+                }
                 stopSelf()
             },
             onFailure = { error ->
@@ -153,7 +163,12 @@ class VideoDownloadService : Service() {
                 showFailedNotification(errMsg)
                 _progressEvents.tryEmit(DownloadProgressEvent.Error(url, errMsg))
                 preloadedInfoCache.remove(url)
-                stopForeground(false)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(false)
+                }
                 stopSelf()
             }
         )

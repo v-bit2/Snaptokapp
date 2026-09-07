@@ -9,7 +9,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.entity.DownloadedVideoEntity
 import com.example.data.model.TikTokVideoInfo
 import com.example.data.repository.VideoRepository
+import com.example.service.DownloadProgressEvent
 import com.example.service.TikwmApiService
+import com.example.service.VideoDownloadService
 import com.example.service.VideoDownloader
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -106,6 +108,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         checkClipboard()
+        observeDownloadEvents()
+    }
+
+    private fun observeDownloadEvents() {
+        viewModelScope.launch {
+            VideoDownloadService.progressEvents.collect { event ->
+                when (event) {
+                    is DownloadProgressEvent.Progress -> {
+                        val current = _downloadState.value
+                        if (current is DownloadUiState.Downloading && current.info.originalTiktokUrl == event.url) {
+                            _downloadState.value = DownloadUiState.Downloading(
+                                percent = event.percent,
+                                downloadedBytes = event.downloadedBytes,
+                                totalBytes = event.totalBytes,
+                                info = event.info
+                            )
+                        }
+                        val shareCurrent = _shareModalState.value
+                        if (shareCurrent is ShareModalState.Downloading && shareCurrent.info.originalTiktokUrl == event.url) {
+                            _shareModalState.value = ShareModalState.Downloading(
+                                percent = event.percent,
+                                info = event.info
+                            )
+                        }
+                    }
+                    is DownloadProgressEvent.Success -> {
+                        val current = _downloadState.value
+                        if (current is DownloadUiState.Downloading && current.info.originalTiktokUrl == event.url) {
+                            _downloadState.value = DownloadUiState.Success(event.outcome)
+                        }
+                        val shareCurrent = _shareModalState.value
+                        if (shareCurrent is ShareModalState.Downloading && shareCurrent.info.originalTiktokUrl == event.url) {
+                            _shareModalState.value = ShareModalState.Success(
+                                info = event.outcome.videoInfo,
+                                uriString = event.outcome.uriString,
+                                filePath = event.outcome.filePath
+                            )
+                        }
+                    }
+                    is DownloadProgressEvent.Error -> {
+                        val current = _downloadState.value
+                        if (current is DownloadUiState.Downloading && current.info.originalTiktokUrl == event.url) {
+                            _downloadState.value = DownloadUiState.Error(
+                                event.message
+                            )
+                        }
+                        val shareCurrent = _shareModalState.value
+                        if (shareCurrent is ShareModalState.Downloading && shareCurrent.info.originalTiktokUrl == event.url) {
+                            _shareModalState.value = ShareModalState.Error(
+                                event.message
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fun setTab(tab: AppTab) {
@@ -213,27 +271,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             info = info
         )
 
-        viewModelScope.launch {
-            val result = downloader.downloadVideo(info, _preferHd.value) { percent, downloaded, total ->
-                _downloadState.value = DownloadUiState.Downloading(
-                    percent = percent,
-                    downloadedBytes = downloaded,
-                    totalBytes = total,
-                    info = info
-                )
-            }
-
-            result.fold(
-                onSuccess = { outcome ->
-                    _downloadState.value = DownloadUiState.Success(outcome)
-                },
-                onFailure = { error ->
-                    _downloadState.value = DownloadUiState.Error(
-                        error.localizedMessage ?: "Failed to download video. Please try again."
-                    )
-                }
-            )
-        }
+        VideoDownloadService.startDownload(
+            context = getApplication(),
+            videoUrl = info.originalTiktokUrl,
+            preferHd = _preferHd.value,
+            preloadedInfo = info
+        )
     }
 
     fun resetDownloadState() {
@@ -253,22 +296,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             infoResult.fold(
                 onSuccess = { info ->
                     _shareModalState.value = ShareModalState.Downloading(0, info)
-                    val downloadResult = downloader.downloadVideo(info, _preferHd.value) { percent, _, _ ->
-                        _shareModalState.value = ShareModalState.Downloading(percent, info)
-                    }
-                    downloadResult.fold(
-                        onSuccess = { outcome ->
-                            _shareModalState.value = ShareModalState.Success(
-                                info = info,
-                                uriString = outcome.uriString,
-                                filePath = outcome.filePath
-                            )
-                        },
-                        onFailure = { dlErr ->
-                            _shareModalState.value = ShareModalState.Error(
-                                dlErr.localizedMessage ?: "Failed to download video."
-                            )
-                        }
+                    VideoDownloadService.startDownload(
+                        context = getApplication(),
+                        videoUrl = info.originalTiktokUrl,
+                        preferHd = _preferHd.value,
+                        preloadedInfo = info
                     )
                 },
                 onFailure = { err ->
