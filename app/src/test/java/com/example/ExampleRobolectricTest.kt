@@ -44,5 +44,29 @@ class ExampleRobolectricTest {
     val resolvedActivity = resolveInfoList.find { it.activityInfo.name == ShareOverlayActivity::class.java.name }
     assertNotNull("ShareOverlayActivity must be registered as target for text/plain share", resolvedActivity)
   }
+
+  @Test
+  fun `test open and close in-app video player`() {
+    val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+    val viewModel = com.example.ui.viewmodel.MainViewModel(app)
+
+    org.junit.Assert.assertNull(viewModel.playingVideo.value)
+
+    viewModel.openInAppPlayer(
+      title = "Dance Trend",
+      author = "dancer123",
+      uriString = "content://media/external/video/media/1",
+      filePath = "/storage/emulated/0/Movies/SnapTok/dance.mp4"
+    )
+
+    val playing = viewModel.playingVideo.value
+    assertNotNull(playing)
+    assertEquals("Dance Trend", playing?.title)
+    assertEquals("dancer123", playing?.author)
+    assertEquals("content://media/external/video/media/1", playing?.uriString)
+
+    viewModel.closeInAppPlayer()
+    org.junit.Assert.assertNull(viewModel.playingVideo.value)
+  }
 }
 

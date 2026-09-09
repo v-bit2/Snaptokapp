@@ -12,8 +12,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -33,13 +37,14 @@ import com.example.data.storage.MediaSaver
 import com.example.ui.ShareOverlayActivity
 import com.example.ui.components.ShareOverlayDialog
 import com.example.ui.components.SnapTokBottomNavBar
-import com.example.ui.components.VideoPlayerDialog
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.VideoPlayerScreen
 import com.example.ui.theme.SnapTokTheme
 import com.example.ui.viewmodel.AppTab
 import com.example.ui.viewmodel.MainViewModel
+import com.example.ui.viewmodel.ShareModalState
 
 class MainActivity : ComponentActivity() {
 
@@ -170,7 +175,11 @@ class MainActivity : ComponentActivity() {
                             state = modalState,
                             onDismiss = { viewModel.dismissShareModal() },
                             onPlayClick = { uri, path ->
-                                MediaSaver.playVideo(context, uri, path)
+                                val info = (modalState as? ShareModalState.Success)?.info
+                                val title = info?.title ?: "TikTok Video"
+                                val author = info?.authorUsername ?: "creator"
+                                viewModel.dismissShareModal()
+                                viewModel.openInAppPlayer(title, author, uri, path)
                             },
                             onShareClick = { uri, path, title ->
                                 MediaSaver.shareVideo(context, uri, path, title)
@@ -178,12 +187,24 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // In-App Video Player Dialog
-                    playingVideo?.let { videoInfo ->
-                        VideoPlayerDialog(
-                            video = videoInfo,
-                            onClose = { viewModel.closeInAppPlayer() }
+                    // Dedicated Full-Screen In-App Video Player Screen
+                    AnimatedVisibility(
+                        visible = playingVideo != null,
+                        enter = fadeIn(animationSpec = tween(250)) + slideInVertically(
+                            animationSpec = tween(250),
+                            initialOffsetY = { it / 6 }
+                        ),
+                        exit = fadeOut(animationSpec = tween(200)) + slideOutVertically(
+                            animationSpec = tween(200),
+                            targetOffsetY = { it / 6 }
                         )
+                    ) {
+                        playingVideo?.let { videoInfo ->
+                            VideoPlayerScreen(
+                                video = videoInfo,
+                                onClose = { viewModel.closeInAppPlayer() }
+                            )
+                        }
                     }
                 }
             }
