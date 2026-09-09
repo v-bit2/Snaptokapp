@@ -6,13 +6,17 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.example.MainActivity
 import com.example.R
 import com.example.data.model.TikTokVideoInfo
 import com.example.data.storage.MediaSaver
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,7 +49,11 @@ sealed interface DownloadProgressEvent {
 
 class VideoDownloadService : Service() {
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e("VideoDownloadService", "Uncaught coroutine exception", throwable)
+    }
+
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
     private lateinit var notificationManager: NotificationManager
     private lateinit var downloader: VideoDownloader
 
@@ -67,19 +75,25 @@ class VideoDownloadService : Service() {
             videoUrl: String,
             preferHd: Boolean = true,
             preloadedInfo: TikTokVideoInfo? = null
-        ) {
+        ): Boolean {
             if (preloadedInfo != null) {
                 preloadedInfoCache[videoUrl] = preloadedInfo
             }
-            val intent = Intent(context, VideoDownloadService::class.java).apply {
-                action = ACTION_START_DOWNLOAD
-                putExtra(EXTRA_VIDEO_URL, videoUrl)
-                putExtra(EXTRA_PREFER_HD, preferHd)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            return try {
+                val intent = Intent(context, VideoDownloadService::class.java).apply {
+                    action = ACTION_START_DOWNLOAD
+                    putExtra(EXTRA_VIDEO_URL, videoUrl)
+                    putExtra(EXTRA_PREFER_HD, preferHd)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                true
+            } catch (t: Throwable) {
+                Log.e("VideoDownloadService", "Failed to start VideoDownloadService", t)
+                false
             }
         }
     }
@@ -96,13 +110,44 @@ class VideoDownloadService : Service() {
             val videoUrl = intent.getStringExtra(EXTRA_VIDEO_URL) ?: ""
             val preferHd = intent.getBooleanExtra(EXTRA_PREFER_HD, true)
             if (videoUrl.isNotBlank()) {
-                startForeground(NOTIFICATION_ID, buildProgressNotification("Preparing download…", 0, true))
+                tryStartForeground()
                 processDownload(videoUrl, preferHd)
             } else {
                 stopSelf()
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun tryStartForeground() {
+        try {
+            val notification = buildProgressNotification("Preparing download…", 0, true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (t: Throwable) {
+            Log.e("VideoDownloadService", "Could not startForeground with notification", t)
+        }
+    }
+
+    private fun safeStopForeground() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_DETACH)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(false)
+            }
+        } catch (t: Throwable) {
+            Log.e("VideoDownloadService", "Error in safeStopForeground", t)
+        }
     }
 
     private fun processDownload(url: String, preferHd: Boolean) {
@@ -122,12 +167,7 @@ class VideoDownloadService : Service() {
                         val errMsg = error.localizedMessage ?: "Failed to fetch video details"
                         showFailedNotification(errMsg)
                         _progressEvents.tryEmit(DownloadProgressEvent.Error(url, errMsg))
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                            stopForeground(STOP_FOREGROUND_DETACH)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            stopForeground(false)
-                        }
+                        safeStopForeground()
                         stopSelf()
                     }
                 )
@@ -150,12 +190,7 @@ class VideoDownloadService : Service() {
                 showCompleteNotification(outcome.videoInfo.title, outcome.uriString, outcome.filePath)
                 _progressEvents.tryEmit(DownloadProgressEvent.Success(url, outcome))
                 preloadedInfoCache.remove(url)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_DETACH)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(false)
-                }
+                safeStopForeground()
                 stopSelf()
             },
             onFailure = { error ->
@@ -163,12 +198,7 @@ class VideoDownloadService : Service() {
                 showFailedNotification(errMsg)
                 _progressEvents.tryEmit(DownloadProgressEvent.Error(url, errMsg))
                 preloadedInfoCache.remove(url)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_DETACH)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(false)
-                }
+                safeStopForeground()
                 stopSelf()
             }
         )
@@ -176,22 +206,26 @@ class VideoDownloadService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "SnapTok Downloads",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Shows download progress and status for SnapTok"
-                setSound(null, null)
-                enableVibration(false)
+            try {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "SnapTok Downloads",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Shows download progress and status for SnapTok"
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+                notificationManager.createNotificationChannel(channel)
+            } catch (t: Throwable) {
+                Log.e("VideoDownloadService", "Failed to create notification channel", t)
             }
-            notificationManager.createNotificationChannel(channel)
         }
     }
 
     private fun buildProgressNotification(content: String, progress: Int, indeterminate: Boolean) =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_download_notification)
             .setContentTitle("SnapTok Downloader")
             .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -201,50 +235,62 @@ class VideoDownloadService : Service() {
             .build()
 
     private fun updateNotification(content: String, progress: Int, indeterminate: Boolean) {
-        val notification = buildProgressNotification(content, progress, indeterminate)
-        notificationManager.notify(NOTIFICATION_ID, notification)
+        try {
+            val notification = buildProgressNotification(content, progress, indeterminate)
+            notificationManager.notify(NOTIFICATION_ID, notification)
+        } catch (t: Throwable) {
+            Log.e("VideoDownloadService", "Failed to update notification", t)
+        }
     }
 
     private fun showCompleteNotification(title: String, uriString: String, filePath: String) {
-        val playIntent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(android.net.Uri.parse(uriString), "video/mp4")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            System.currentTimeMillis().toInt(),
-            playIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val displayTitle = title.ifBlank { "TikTok Video" }
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Download complete — tap to view")
-            .setContentText("Saved to Gallery: $displayTitle")
-            .setStyle(
-                NotificationCompat.BigTextStyle()
-                    .bigText("Saved to Gallery: $displayTitle\nDownload complete — tap to view")
+        try {
+            val playIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(android.net.Uri.parse(uriString), "video/mp4")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                System.currentTimeMillis().toInt(),
+                playIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .build()
 
-        notificationManager.notify(NOTIFICATION_ID + 1, notification)
+            val displayTitle = title.ifBlank { "TikTok Video" }
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_download_notification)
+                .setContentTitle("Download complete — tap to view")
+                .setContentText("Saved to Gallery: $displayTitle")
+                .setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .bigText("Saved to Gallery: $displayTitle\nDownload complete — tap to view")
+                )
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            notificationManager.notify(NOTIFICATION_ID + 1, notification)
+        } catch (t: Throwable) {
+            Log.e("VideoDownloadService", "Failed to show complete notification", t)
+        }
     }
 
     private fun showFailedNotification(errorMessage: String) {
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Download Failed")
-            .setContentText(errorMessage)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .setContentIntent(getOpenAppPendingIntent())
-            .build()
+        try {
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_download_notification)
+                .setContentTitle("Download Failed")
+                .setContentText(errorMessage)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+                .setContentIntent(getOpenAppPendingIntent())
+                .build()
 
-        notificationManager.notify(NOTIFICATION_ID + 2, notification)
+            notificationManager.notify(NOTIFICATION_ID + 2, notification)
+        } catch (t: Throwable) {
+            Log.e("VideoDownloadService", "Failed to show failed notification", t)
+        }
     }
 
     private fun getOpenAppPendingIntent(): PendingIntent {

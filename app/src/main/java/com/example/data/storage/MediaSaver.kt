@@ -38,45 +38,66 @@ object MediaSaver {
         val sanitizedTitle = title.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(30)
         val fileName = "SnapTok_${sanitizedTitle}_$timestamp.mp4"
 
-        val resolver = context.contentResolver
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val contentValues = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
-                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SnapTok")
-                put(MediaStore.Video.Media.IS_PENDING, 1)
-            }
-
-            val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
-                ?: throw IllegalStateException("Failed to create MediaStore entry")
-
-            var totalWritten = 0L
-            resolver.openOutputStream(uri)?.use { outputStream ->
-                val buffer = ByteArray(8 * 1024)
+        // Step 1: Buffer network stream into a temporary cache file.
+        // This decouples network streaming from MediaStore file locks and guarantees progress reporting.
+        val tempFile = File(context.cacheDir, "temp_$fileName")
+        var totalWritten = 0L
+        try {
+            FileOutputStream(tempFile).use { fos ->
+                val buffer = ByteArray(16 * 1024)
                 var read: Int
                 while (inputStream.read(buffer).also { read = it } != -1) {
-                    outputStream.write(buffer, 0, read)
+                    fos.write(buffer, 0, read)
                     totalWritten += read
                     onProgress(totalWritten)
                 }
-                outputStream.flush()
-            } ?: throw IllegalStateException("Failed to open output stream for MediaStore uri")
+                fos.flush()
+            }
+        } catch (e: Exception) {
+            tempFile.delete()
+            throw e
+        }
 
-            contentValues.clear()
-            contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
-            resolver.update(uri, contentValues, null, null)
+        val resolver = context.contentResolver
 
-            // Attempt to get physical path or fallback to Movies/SnapTok path
-            val fallbackPath = "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)}/SnapTok/$fileName"
+        // Attempt 1: Scoped Storage MediaStore (Android 10+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SnapTok")
+                    put(MediaStore.Video.Media.IS_PENDING, 1)
+                }
 
-            return SaveResult(
-                uri = uri,
-                filePath = fallbackPath,
-                sizeBytes = totalWritten
-            )
-        } else {
-            // Android 9 and lower
+                val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { outStream ->
+                        tempFile.inputStream().use { inStream ->
+                            inStream.copyTo(outStream)
+                        }
+                        outStream.flush()
+                    }
+                    contentValues.clear()
+                    contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+                    resolver.update(uri, contentValues, null, null)
+
+                    val publicMoviesPath = "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)}/SnapTok/$fileName"
+                    tempFile.delete()
+
+                    return SaveResult(
+                        uri = uri,
+                        filePath = publicMoviesPath,
+                        sizeBytes = totalWritten
+                    )
+                }
+            } catch (ignored: Exception) {
+                // MediaStore insert or stream failed, proceed to Attempt 2
+            }
+        }
+
+        // Attempt 2: Direct public Movies directory (Android 9 and below, or if MediaStore threw)
+        try {
             val moviesDir = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
                 "SnapTok"
@@ -85,33 +106,48 @@ object MediaSaver {
                 moviesDir.mkdirs()
             }
             val targetFile = File(moviesDir, fileName)
-            var totalWritten = 0L
-            FileOutputStream(targetFile).use { outputStream ->
-                val buffer = ByteArray(8 * 1024)
-                var read: Int
-                while (inputStream.read(buffer).also { read = it } != -1) {
-                    outputStream.write(buffer, 0, read)
-                    totalWritten += read
-                    onProgress(totalWritten)
-                }
-                outputStream.flush()
-            }
+            tempFile.copyTo(targetFile, overwrite = true)
 
-            // Register in MediaStore so it appears in Gallery
             val contentValues = ContentValues().apply {
-                put(MediaStore.Video.Media.DATA, targetFile.absolutePath)
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    put(MediaStore.Video.Media.DATA, targetFile.absolutePath)
+                }
                 put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
                 put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
             }
             val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
                 ?: Uri.fromFile(targetFile)
 
+            tempFile.delete()
             return SaveResult(
                 uri = uri,
                 filePath = targetFile.absolutePath,
                 sizeBytes = totalWritten
             )
+        } catch (ignored: Exception) {
+            // Public storage failed, proceed to Attempt 3
         }
+
+        // Attempt 3: Guaranteed safe app-specific external files dir or internal files with FileProvider
+        val fallbackDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir
+        if (!fallbackDir.exists()) {
+            fallbackDir.mkdirs()
+        }
+        val safeFallbackFile = File(fallbackDir, fileName)
+        tempFile.copyTo(safeFallbackFile, overwrite = true)
+        tempFile.delete()
+
+        val safeUri = try {
+            FileProvider.getUriForFile(context, "${context.packageName}.provider", safeFallbackFile)
+        } catch (e: Exception) {
+            Uri.fromFile(safeFallbackFile)
+        }
+
+        return SaveResult(
+            uri = safeUri,
+            filePath = safeFallbackFile.absolutePath,
+            sizeBytes = totalWritten
+        )
     }
 
     fun playVideo(context: Context, uriString: String, filePath: String) {

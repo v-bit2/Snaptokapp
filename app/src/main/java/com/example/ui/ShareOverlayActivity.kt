@@ -465,12 +465,36 @@ fun ShareOverlayScreen(
                                                 totalBytes = info.estimatedSizeBytes,
                                                 info = info
                                             )
-                                            VideoDownloadService.startDownload(
-                                                context = context,
-                                                videoUrl = info.originalTiktokUrl,
-                                                preferHd = true,
-                                                preloadedInfo = info
-                                            )
+                                            val started = try {
+                                                VideoDownloadService.startDownload(
+                                                    context = context,
+                                                    videoUrl = info.originalTiktokUrl,
+                                                    preferHd = true,
+                                                    preloadedInfo = info
+                                                )
+                                            } catch (t: Throwable) {
+                                                false
+                                            }
+                                            if (!started) {
+                                                coroutineScope.launch {
+                                                    val downloader = com.example.service.VideoDownloader(context)
+                                                    val res = downloader.downloadVideo(info, true) { pct, bytes, total ->
+                                                        state = OverlayUiState.Downloading(pct, bytes, total, info)
+                                                    }
+                                                    res.fold(
+                                                        onSuccess = { outcome ->
+                                                            state = OverlayUiState.Success(outcome)
+                                                        },
+                                                        onFailure = { err ->
+                                                            state = OverlayUiState.Error(
+                                                                err.localizedMessage ?: "Download failed",
+                                                                true,
+                                                                info.originalTiktokUrl
+                                                            )
+                                                        }
+                                                    )
+                                                }
+                                            }
                                         },
                                         modifier = Modifier
                                             .weight(1.2f)

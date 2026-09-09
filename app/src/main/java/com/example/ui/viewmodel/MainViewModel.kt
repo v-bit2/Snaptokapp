@@ -271,12 +271,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             info = info
         )
 
-        VideoDownloadService.startDownload(
-            context = getApplication(),
-            videoUrl = info.originalTiktokUrl,
-            preferHd = _preferHd.value,
-            preloadedInfo = info
-        )
+        val serviceStarted = try {
+            VideoDownloadService.startDownload(
+                context = getApplication(),
+                videoUrl = info.originalTiktokUrl,
+                preferHd = _preferHd.value,
+                preloadedInfo = info
+            )
+        } catch (t: Throwable) {
+            false
+        }
+
+        if (!serviceStarted) {
+            runDirectDownload(info)
+        }
+    }
+
+    private fun runDirectDownload(info: TikTokVideoInfo) {
+        viewModelScope.launch {
+            val result = downloader.downloadVideo(info, _preferHd.value) { percent, downloaded, total ->
+                _downloadState.value = DownloadUiState.Downloading(
+                    percent = percent,
+                    downloadedBytes = downloaded,
+                    totalBytes = total,
+                    info = info
+                )
+            }
+
+            result.fold(
+                onSuccess = { outcome ->
+                    _downloadState.value = DownloadUiState.Success(outcome)
+                },
+                onFailure = { error ->
+                    _downloadState.value = DownloadUiState.Error(
+                        error.localizedMessage ?: "Failed to download video. Please try again."
+                    )
+                }
+            )
+        }
     }
 
     fun resetDownloadState() {
@@ -296,12 +328,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             infoResult.fold(
                 onSuccess = { info ->
                     _shareModalState.value = ShareModalState.Downloading(0, info)
-                    VideoDownloadService.startDownload(
-                        context = getApplication(),
-                        videoUrl = info.originalTiktokUrl,
-                        preferHd = _preferHd.value,
-                        preloadedInfo = info
-                    )
+                    val serviceStarted = try {
+                        VideoDownloadService.startDownload(
+                            context = getApplication(),
+                            videoUrl = info.originalTiktokUrl,
+                            preferHd = _preferHd.value,
+                            preloadedInfo = info
+                        )
+                    } catch (t: Throwable) {
+                        false
+                    }
+
+                    if (!serviceStarted) {
+                        val downloadResult = downloader.downloadVideo(info, _preferHd.value) { percent, _, _ ->
+                            _shareModalState.value = ShareModalState.Downloading(percent, info)
+                        }
+                        downloadResult.fold(
+                            onSuccess = { outcome ->
+                                _shareModalState.value = ShareModalState.Success(
+                                    info = info,
+                                    uriString = outcome.uriString,
+                                    filePath = outcome.filePath
+                                )
+                            },
+                            onFailure = { dlErr ->
+                                _shareModalState.value = ShareModalState.Error(
+                                    dlErr.localizedMessage ?: "Failed to download video."
+                                )
+                            }
+                        )
+                    }
                 },
                 onFailure = { err ->
                     _shareModalState.value = ShareModalState.Error(
