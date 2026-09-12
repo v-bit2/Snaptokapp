@@ -63,6 +63,9 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.components.DownloadErrorCard
 import com.example.ui.components.DownloadSuccessCard
 import com.example.ui.components.DownloadingProgressCard
+import com.example.ui.components.PhotoDownloadingProgressCard
+import com.example.ui.components.PhotoGridSelectorCard
+import com.example.ui.components.PhotoSuccessCard
 import com.example.ui.components.VideoInfoCard
 import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.CoralVariant
@@ -85,6 +88,12 @@ fun HomeScreen(
     onResetClick: () -> Unit,
     onPlaySavedVideo: (uri: String, filePath: String, title: String, author: String) -> Unit,
     onShareSavedVideo: (uri: String, filePath: String, title: String) -> Unit,
+    onToggleImageSelect: (String) -> Unit = {},
+    onSelectAllImages: () -> Unit = {},
+    onDeselectAllImages: () -> Unit = {},
+    onViewSavedPhotos: (photoUris: List<String>, title: String, author: String) -> Unit = { _, _, _ -> },
+    onShareSavedPhotos: (photoUris: List<String>, title: String) -> Unit = { _, _ -> },
+    onRetryFailedPhotos: (failedUrls: List<String>) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -97,7 +106,7 @@ fun HomeScreen(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // App Header / Hero Branding (Matching Flutter UI)
+        // App Header / Hero Branding
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -215,7 +224,7 @@ fun HomeScreen(
             }
         }
 
-        // Main Input Card (Matching Flutter Home Screen Layout)
+        // Main Input Card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -240,7 +249,7 @@ fun HomeScreen(
                     lineHeight = 26.sp
                 )
                 Text(
-                    text = "Paste a video link or share directly from the TikTok app.",
+                    text = "Paste a video or photo slideshow link to download high-res media.",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -248,7 +257,7 @@ fun HomeScreen(
                 OutlinedTextField(
                     value = urlInput,
                     onValueChange = onUrlChanged,
-                    placeholder = { Text("Paste TikTok video link here…", fontSize = 13.sp) },
+                    placeholder = { Text("Paste TikTok link here…", fontSize = 13.sp) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("url_input_field"),
@@ -324,15 +333,14 @@ fun HomeScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Fetch & Download Video", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("Fetch & Download", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        // Active State Views (Loading / Video Info / Downloading / Success / Error)
+        // Active State Views (Loading / Video Info / Photo Grid / Downloading / Success / Error)
         when (downloadState) {
             is DownloadUiState.Idle -> {
-                // Info / Instructions Card
                 HowToUseCard()
             }
 
@@ -357,7 +365,7 @@ fun HomeScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Extracting clean no-watermark stream",
+                            text = "Extracting clean no-watermark media stream",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -366,11 +374,22 @@ fun HomeScreen(
             }
 
             is DownloadUiState.InfoLoaded -> {
-                VideoInfoCard(
-                    info = downloadState.info,
-                    preferHd = preferHd,
-                    onDownloadClick = onStartDownloadClick
-                )
+                if (downloadState.info.isPhotoPost) {
+                    PhotoGridSelectorCard(
+                        info = downloadState.info,
+                        selectedImages = downloadState.selectedImages,
+                        onToggleSelect = onToggleImageSelect,
+                        onSelectAll = onSelectAllImages,
+                        onDeselectAll = onDeselectAllImages,
+                        onDownloadClick = onStartDownloadClick
+                    )
+                } else {
+                    VideoInfoCard(
+                        info = downloadState.info,
+                        preferHd = preferHd,
+                        onDownloadClick = onStartDownloadClick
+                    )
+                }
             }
 
             is DownloadUiState.Downloading -> {
@@ -378,6 +397,15 @@ fun HomeScreen(
                     percent = downloadState.percent,
                     downloadedBytes = downloadState.downloadedBytes,
                     totalBytes = downloadState.totalBytes,
+                    title = downloadState.info.title
+                )
+            }
+
+            is DownloadUiState.PhotoDownloading -> {
+                PhotoDownloadingProgressCard(
+                    completedCount = downloadState.completedCount,
+                    totalCount = downloadState.totalCount,
+                    percent = downloadState.percent,
                     title = downloadState.info.title
                 )
             }
@@ -400,6 +428,20 @@ fun HomeScreen(
                             downloadState.outcome.videoInfo.title
                         )
                     },
+                    onResetClick = onResetClick
+                )
+            }
+
+            is DownloadUiState.PhotoSuccess -> {
+                PhotoSuccessCard(
+                    outcome = downloadState.outcome,
+                    onViewPhotosClick = { uris, title, author ->
+                        onViewSavedPhotos(uris, title, author)
+                    },
+                    onShareAllClick = { uris, title ->
+                        onShareSavedPhotos(uris, title)
+                    },
+                    onRetryFailed = onRetryFailedPhotos,
                     onResetClick = onResetClick
                 )
             }
@@ -444,45 +486,42 @@ private fun HowToUseCard() {
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "How to save videos without watermark",
+                    text = "How to save videos & photo posts",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            // Step 1
-            StepItem(
-                number = "1",
-                title = "Copy Link in TikTok",
-                desc = "Open TikTok, tap Share on any video, and tap 'Copy Link' (or share directly to SnapTok)."
-            )
-
-            // Step 2
-            StepItem(
-                number = "2",
-                title = "Paste into SnapTok",
-                desc = "Tap 'Paste Link' above. SnapTok automatically reads and validates the video URL."
-            )
-
-            // Step 3
-            StepItem(
-                number = "3",
-                title = "Saved to Gallery",
-                desc = "Tap Download! The video is saved directly to your phone's Gallery under Movies/SnapTok."
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                StepRow(
+                    step = "1",
+                    title = "Copy TikTok link",
+                    desc = "Tap Share > Copy Link on any video or photo post."
+                )
+                StepRow(
+                    step = "2",
+                    title = "Paste or Share to SnapTok",
+                    desc = "Open SnapTok to paste or select SnapTok in the system Share sheet."
+                )
+                StepRow(
+                    step = "3",
+                    title = "Download Without Watermark",
+                    desc = "Pick individual photos or full video in crisp HD directly to Gallery."
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun StepItem(
-    number: String,
+private fun StepRow(
+    step: String,
     title: String,
     desc: String
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top
     ) {
         Box(
             modifier = Modifier
@@ -492,24 +531,25 @@ private fun StepItem(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = number,
+                text = step,
                 color = CoralPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 10.sp
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
             )
         }
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = desc,
-                fontSize = 10.sp,
-                lineHeight = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 15.sp
             )
         }
     }

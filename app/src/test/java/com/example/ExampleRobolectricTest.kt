@@ -68,5 +68,59 @@ class ExampleRobolectricTest {
     viewModel.closeInAppPlayer()
     org.junit.Assert.assertNull(viewModel.playingVideo.value)
   }
+
+  @Test
+  fun `test open and close photo gallery viewer`() {
+    val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+    val viewModel = com.example.ui.viewmodel.MainViewModel(app)
+
+    org.junit.Assert.assertNull(viewModel.viewingPhotos.value)
+
+    val photoUris = listOf(
+      "content://media/external/images/media/1",
+      "content://media/external/images/media/2"
+    )
+    viewModel.openPhotoGallery(
+      title = "Photo Dump",
+      author = "photocreator",
+      photoUris = photoUris,
+      initialIndex = 1
+    )
+
+    val viewing = viewModel.viewingPhotos.value
+    assertNotNull(viewing)
+    assertEquals("Photo Dump", viewing?.title)
+    assertEquals("photocreator", viewing?.author)
+    assertEquals(2, viewing?.photoUris?.size)
+    assertEquals(1, viewing?.initialIndex)
+
+    viewModel.closePhotoGallery()
+    org.junit.Assert.assertNull(viewModel.viewingPhotos.value)
+  }
+
+  @Test
+  fun `test DownloadedVideoEntity photo post parsing`() {
+    val entity = com.example.data.entity.DownloadedVideoEntity(
+      title = "My Vacation Photos",
+      authorName = "Traveler",
+      authorHandle = "traveler",
+      authorAvatarUrl = "",
+      coverUrl = "https://example.com/p1.jpg",
+      videoUri = "content://media/external/images/media/1",
+      filePath = "/storage/emulated/0/Pictures/SnapTok/p1.jpg",
+      fileSizeBytes = 1024000L,
+      durationSeconds = 0,
+      originalUrl = "https://tiktok.com/@traveler/photo/123",
+      postType = "photo",
+      photoUrls = "content://media/external/images/media/1|content://media/external/images/media/2",
+      photoCount = 2
+    )
+
+    assertTrue(entity.isPhotoPost)
+    val parsedUris = entity.getPhotoUris()
+    assertEquals(2, parsedUris.size)
+    assertEquals("content://media/external/images/media/1", parsedUris[0])
+    assertEquals("content://media/external/images/media/2", parsedUris[1])
+  }
 }
 

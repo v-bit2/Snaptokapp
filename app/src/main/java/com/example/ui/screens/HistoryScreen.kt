@@ -22,9 +22,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -72,6 +74,8 @@ fun HistoryScreen(
     onSearchChanged: (String) -> Unit,
     onPlayVideo: (uri: String, filePath: String, title: String, author: String) -> Unit,
     onShareVideo: (uri: String, filePath: String, title: String) -> Unit,
+    onViewPhotos: (photoUris: List<String>, title: String, author: String) -> Unit = { _, _, _ -> },
+    onSharePhotos: (photoUris: List<String>, title: String) -> Unit = { _, _ -> },
     onDeleteVideo: (DownloadedVideoEntity) -> Unit,
     onClearAll: () -> Unit,
     modifier: Modifier = Modifier
@@ -99,7 +103,7 @@ fun HistoryScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "${videos.size} videos saved • ${MediaSaver.formatBytes(totalBytes)}",
+                    text = "${videos.size} items saved • ${MediaSaver.formatBytes(totalBytes)}",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -150,25 +154,26 @@ fun HistoryScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("history_search_field"),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-            shape = RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(12.dp),
             singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = CoralPrimary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
             )
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Content
+        // List or Empty
         if (videos.isEmpty()) {
             EmptyHistoryView(isSearching = searchQuery.isNotBlank())
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("history_list"),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
@@ -176,26 +181,32 @@ fun HistoryScreen(
                     HistoryItemCard(
                         video = video,
                         onPlayClick = {
-                            onPlayVideo(video.videoUri, video.filePath, video.title, video.authorHandle)
+                            if (video.isPhotoPost) {
+                                onViewPhotos(video.getPhotoUris(), video.title, video.authorHandle)
+                            } else {
+                                onPlayVideo(video.videoUri, video.filePath, video.title, video.authorHandle)
+                            }
                         },
                         onShareClick = {
-                            onShareVideo(video.videoUri, video.filePath, video.title)
+                            if (video.isPhotoPost) {
+                                onSharePhotos(video.getPhotoUris(), video.title)
+                            } else {
+                                onShareVideo(video.videoUri, video.filePath, video.title)
+                            }
                         },
-                        onDeleteClick = {
-                            itemToDelete = video
-                        }
+                        onDeleteClick = { itemToDelete = video }
                     )
                 }
             }
         }
     }
 
-    // Single item delete confirmation
+    // Delete single confirmation
     itemToDelete?.let { video ->
         AlertDialog(
             onDismissRequest = { itemToDelete = null },
-            title = { Text("Delete Video?") },
-            text = { Text("Are you sure you want to remove this video from your gallery and history?") },
+            title = { Text("Delete Download?") },
+            text = { Text("Are you sure you want to remove \"${video.title.ifBlank { "this item" }}\" from your history?") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -220,7 +231,7 @@ fun HistoryScreen(
         AlertDialog(
             onDismissRequest = { showClearAllConfirm = false },
             title = { Text("Clear All History?") },
-            text = { Text("This will permanently remove all downloaded videos from your history and gallery.") },
+            text = { Text("This will permanently remove all downloaded items from your history and device storage.") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -268,7 +279,7 @@ fun HistoryItemCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Thumbnail with Play overlay icon
+            // Thumbnail with Play / Photo overlay icon
             Box(
                 modifier = Modifier
                     .size(width = 54.dp, height = 72.dp)
@@ -283,7 +294,7 @@ fun HistoryItemCard(
                     contentScale = ContentScale.Crop
                 )
 
-                // Play icon pill
+                // Play / Photos icon badge
                 Box(
                     modifier = Modifier
                         .size(24.dp)
@@ -292,14 +303,30 @@ fun HistoryItemCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Play",
+                        imageVector = if (video.isPhotoPost) Icons.Default.Collections else Icons.Default.PlayArrow,
+                        contentDescription = if (video.isPhotoPost) "View photos" else "Play",
                         tint = Color.White,
                         modifier = Modifier.size(15.dp)
                     )
                 }
 
-                if (video.durationSeconds > 0) {
+                if (video.isPhotoPost) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(2.dp),
+                        shape = RoundedCornerShape(3.dp),
+                        color = Color.Black.copy(alpha = 0.75f)
+                    ) {
+                        Text(
+                            text = "${video.photoCount}P",
+                            color = TealAccent,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                        )
+                    }
+                } else if (video.durationSeconds > 0) {
                     Surface(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -344,7 +371,7 @@ fun HistoryItemCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = MediaSaver.formatBytes(video.fileSizeBytes),
+                        text = if (video.isPhotoPost) "${video.photoCount} Photos" else MediaSaver.formatBytes(video.fileSizeBytes),
                         fontSize = 9.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -415,7 +442,7 @@ fun EmptyHistoryView(isSearching: Boolean) {
         Spacer(modifier = Modifier.height(10.dp))
 
         Text(
-            text = if (isSearching) "No matching videos" else "No downloads yet",
+            text = if (isSearching) "No matching downloads" else "No downloads yet",
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold
         )
@@ -424,7 +451,7 @@ fun EmptyHistoryView(isSearching: Boolean) {
 
         Text(
             text = if (isSearching) "Try searching with a different caption or username"
-            else "Paste a TikTok link on the Downloader tab or share a video from TikTok to save it here!",
+            else "Paste a TikTok link on the Downloader tab or share a video/photo post to save it here!",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center

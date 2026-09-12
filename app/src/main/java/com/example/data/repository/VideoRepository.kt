@@ -34,19 +34,59 @@ class VideoRepository(
             filePath = filePath,
             fileSizeBytes = fileSizeBytes,
             durationSeconds = info.durationSeconds,
-            originalUrl = info.originalTiktokUrl
+            originalUrl = info.originalTiktokUrl,
+            postType = "video",
+            photoUrls = "",
+            photoCount = 1
+        )
+        return dao.insertDownload(entity)
+    }
+
+    suspend fun recordPhotoDownload(
+        info: TikTokVideoInfo,
+        savedUris: List<String>,
+        primaryFilePath: String,
+        totalSizeBytes: Long
+    ): Long {
+        val entity = DownloadedVideoEntity(
+            title = info.title.ifBlank { "TikTok Photos by @${info.authorUsername}" },
+            authorName = info.authorNickname.ifBlank { info.authorUsername },
+            authorHandle = info.authorUsername,
+            authorAvatarUrl = info.authorAvatarUrl,
+            coverUrl = info.coverUrl.ifBlank { savedUris.firstOrNull() ?: "" },
+            videoUri = savedUris.firstOrNull() ?: "",
+            filePath = primaryFilePath,
+            fileSizeBytes = totalSizeBytes,
+            durationSeconds = 0,
+            originalUrl = info.originalTiktokUrl,
+            postType = "photo",
+            photoUrls = savedUris.joinToString("|"),
+            photoCount = savedUris.size
         )
         return dao.insertDownload(entity)
     }
 
     suspend fun deleteDownload(video: DownloadedVideoEntity) {
-        MediaSaver.deleteVideo(context, video.videoUri, video.filePath)
+        if (video.isPhotoPost) {
+            val uris = video.getPhotoUris()
+            for (u in uris) {
+                MediaSaver.deleteVideo(context, u, "")
+            }
+        } else {
+            MediaSaver.deleteVideo(context, video.videoUri, video.filePath)
+        }
         dao.deleteById(video.id)
     }
 
     suspend fun clearAll(videos: List<DownloadedVideoEntity>) {
         videos.forEach { video ->
-            MediaSaver.deleteVideo(context, video.videoUri, video.filePath)
+            if (video.isPhotoPost) {
+                video.getPhotoUris().forEach { u ->
+                    MediaSaver.deleteVideo(context, u, "")
+                }
+            } else {
+                MediaSaver.deleteVideo(context, video.videoUri, video.filePath)
+            }
         }
         dao.clearAll()
     }

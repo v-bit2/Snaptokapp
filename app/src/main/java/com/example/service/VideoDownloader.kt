@@ -29,6 +29,17 @@ class VideoDownloader(
         val videoInfo: TikTokVideoInfo
     )
 
+    data class PhotoDownloadOutcome(
+        val savedUris: List<String>,
+        val primaryFilePath: String,
+        val totalSize: Long,
+        val postInfo: TikTokVideoInfo,
+        val failedUrls: List<String> = emptyList()
+    ) {
+        val successfulCount: Int get() = savedUris.size
+        val failedCount: Int get() = failedUrls.size
+    }
+
     suspend fun downloadVideo(
         info: TikTokVideoInfo,
         preferHd: Boolean = true,
@@ -71,7 +82,7 @@ class VideoDownloader(
                     val percent = if (contentLength > 0) {
                         ((bytesWritten * 100) / contentLength).toInt().coerceIn(0, 100)
                     } else {
-                        50 // indeterminate approximation
+                        50
                     }
                     if (percent != lastReportedPercent) {
                         lastReportedPercent = percent
@@ -99,5 +110,86 @@ class VideoDownloader(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun downloadPhotoPost(
+        info: TikTokVideoInfo,
+        selectedUrls: List<String>,
+        onProgress: (completedCount: Int, totalCount: Int, percent: Int) -> Unit
+    ): Result<PhotoDownloadOutcome> = withContext(Dispatchers.IO) {
+        if (selectedUrls.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("No photos selected for download."))
+        }
+
+        val totalCount = selectedUrls.size
+        val savedUris = mutableListOf<String>()
+        val failedUrls = mutableListOf<String>()
+        var primaryFilePath = ""
+        var totalBytes = 0L
+
+        for (index in selectedUrls.indices) {
+            val imgUrl = selectedUrls[index]
+            val request = Request.Builder()
+                .url(imgUrl)
+                .header("User-Agent", "SnapTok/1.0 (Android)")
+                .header("Referer", "https://www.tiktok.com/")
+                .build()
+
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        failedUrls.add(imgUrl)
+                    } else {
+                        val body = response.body
+                        if (body == null) {
+                            failedUrls.add(imgUrl)
+                        } else {
+                            val saveResult = MediaSaver.saveImageToGallery(
+                                context = context,
+                                inputStream = body.byteStream(),
+                                title = info.title,
+                                index = index,
+                                total = totalCount
+                            )
+                            savedUris.add(saveResult.uri.toString())
+                            if (primaryFilePath.isBlank()) {
+                                primaryFilePath = saveResult.filePath
+                            }
+                            totalBytes += saveResult.sizeBytes
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                failedUrls.add(imgUrl)
+            }
+
+            val completed = index + 1
+            val percent = ((completed * 100) / totalCount).coerceIn(0, 100)
+            onProgress(completed, totalCount, percent)
+        }
+
+        if (savedUris.isEmpty()) {
+            return@withContext Result.failure(
+                IOException("Failed to download any of the selected images. Please check your network and try again.")
+            )
+        }
+
+        // Record batch in Room Database
+        repository.recordPhotoDownload(
+            info = info,
+            savedUris = savedUris,
+            primaryFilePath = primaryFilePath,
+            totalSizeBytes = totalBytes
+        )
+
+        Result.success(
+            PhotoDownloadOutcome(
+                savedUris = savedUris,
+                primaryFilePath = primaryFilePath,
+                totalSize = totalBytes,
+                postInfo = info,
+                failedUrls = failedUrls
+            )
+        )
     }
 }

@@ -23,7 +23,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -35,6 +34,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.storage.MediaSaver
 import com.example.ui.ShareOverlayActivity
+import com.example.ui.components.PhotoGalleryViewerDialog
 import com.example.ui.components.ShareOverlayDialog
 import com.example.ui.components.SnapTokBottomNavBar
 import com.example.ui.screens.HistoryScreen
@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
             val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
             val shareModalState by viewModel.shareModalState.collectAsStateWithLifecycle()
             val playingVideo by viewModel.playingVideo.collectAsStateWithLifecycle()
+            val viewingPhotos by viewModel.viewingPhotos.collectAsStateWithLifecycle()
 
             val context = LocalContext.current
 
@@ -134,7 +135,17 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onShareSavedVideo = { uri, path, title ->
                                             MediaSaver.shareVideo(context, uri, path, title)
-                                        }
+                                        },
+                                        onToggleImageSelect = { viewModel.toggleImageSelection(it) },
+                                        onSelectAllImages = { viewModel.selectAllImages() },
+                                        onDeselectAllImages = { viewModel.deselectAllImages() },
+                                        onViewSavedPhotos = { uris, title, author ->
+                                            viewModel.openPhotoGallery(title = title, author = author, photoUris = uris)
+                                        },
+                                        onShareSavedPhotos = { uris, title ->
+                                            MediaSaver.shareMultipleImages(context, uris, title)
+                                        },
+                                        onRetryFailedPhotos = { viewModel.startDownload() }
                                     )
                                 }
 
@@ -148,6 +159,12 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onShareVideo = { uri, path, title ->
                                             MediaSaver.shareVideo(context, uri, path, title)
+                                        },
+                                        onViewPhotos = { uris, title, author ->
+                                            viewModel.openPhotoGallery(title = title, author = author, photoUris = uris)
+                                        },
+                                        onSharePhotos = { uris, title ->
+                                            MediaSaver.shareMultipleImages(context, uris, title)
                                         },
                                         onDeleteVideo = { viewModel.deleteHistoryItem(it) },
                                         onClearAll = { viewModel.clearAllHistory() }
@@ -183,6 +200,17 @@ class MainActivity : ComponentActivity() {
                             },
                             onShareClick = { uri, path, title ->
                                 MediaSaver.shareVideo(context, uri, path, title)
+                            },
+                            onToggleImageSelect = { viewModel.toggleImageSelection(it) },
+                            onSelectAllImages = { viewModel.selectAllImages() },
+                            onDeselectAllImages = { viewModel.deselectAllImages() },
+                            onStartDownload = { viewModel.startDownload() },
+                            onViewPhotosClick = { uris, title, author ->
+                                viewModel.dismissShareModal()
+                                viewModel.openPhotoGallery(title = title, author = author, photoUris = uris)
+                            },
+                            onShareAllPhotosClick = { uris, title ->
+                                MediaSaver.shareMultipleImages(context, uris, title)
                             }
                         )
                     }
@@ -205,6 +233,17 @@ class MainActivity : ComponentActivity() {
                                 onClose = { viewModel.closeInAppPlayer() }
                             )
                         }
+                    }
+
+                    // Dedicated Full-Screen Photo Gallery Viewer Dialog
+                    viewingPhotos?.let { galleryInfo ->
+                        PhotoGalleryViewerDialog(
+                            title = galleryInfo.title,
+                            author = galleryInfo.author,
+                            photoUris = galleryInfo.photoUris,
+                            initialIndex = galleryInfo.initialIndex,
+                            onDismiss = { viewModel.closePhotoGallery() }
+                        )
                     }
                 }
             }
@@ -235,4 +274,3 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-

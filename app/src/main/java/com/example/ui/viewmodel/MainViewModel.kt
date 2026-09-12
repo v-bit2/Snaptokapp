@@ -31,21 +31,45 @@ enum class AppTab {
 sealed interface DownloadUiState {
     data object Idle : DownloadUiState
     data object FetchingInfo : DownloadUiState
-    data class InfoLoaded(val info: TikTokVideoInfo) : DownloadUiState
+    data class InfoLoaded(
+        val info: TikTokVideoInfo,
+        val selectedImages: Set<String> = emptySet()
+    ) : DownloadUiState
     data class Downloading(
         val percent: Int,
         val downloadedBytes: Long,
         val totalBytes: Long,
         val info: TikTokVideoInfo
     ) : DownloadUiState
+    data class PhotoDownloading(
+        val completedCount: Int,
+        val totalCount: Int,
+        val percent: Int,
+        val info: TikTokVideoInfo
+    ) : DownloadUiState
     data class Success(val outcome: VideoDownloader.DownloadOutcome) : DownloadUiState
+    data class PhotoSuccess(val outcome: VideoDownloader.PhotoDownloadOutcome) : DownloadUiState
     data class Error(val message: String) : DownloadUiState
 }
 
 sealed interface ShareModalState {
     data class Fetching(val rawUrl: String) : ShareModalState
-    data class Downloading(val percent: Int, val info: TikTokVideoInfo) : ShareModalState
-    data class Success(val info: TikTokVideoInfo, val uriString: String, val filePath: String) : ShareModalState
+    data class Preview(
+        val info: TikTokVideoInfo,
+        val selectedImages: Set<String> = emptySet()
+    ) : ShareModalState
+    data class Downloading(
+        val percent: Int,
+        val info: TikTokVideoInfo,
+        val completedCount: Int = 0,
+        val totalCount: Int = 0
+    ) : ShareModalState
+    data class Success(
+        val info: TikTokVideoInfo,
+        val uriString: String,
+        val filePath: String,
+        val savedUris: List<String> = emptyList()
+    ) : ShareModalState
     data class Error(val message: String) : ShareModalState
 }
 
@@ -54,6 +78,13 @@ data class VideoPlaybackInfo(
     val author: String,
     val uriString: String,
     val filePath: String
+)
+
+data class PhotoGalleryInfo(
+    val title: String,
+    val author: String,
+    val photoUris: List<String>,
+    val initialIndex: Int = 0
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -92,6 +123,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Video Player In-App
     private val _playingVideo = MutableStateFlow<VideoPlaybackInfo?>(null)
     val playingVideo: StateFlow<VideoPlaybackInfo?> = _playingVideo.asStateFlow()
+
+    // Photo Gallery In-App View
+    private val _viewingPhotos = MutableStateFlow<PhotoGalleryInfo?>(null)
+    val viewingPhotos: StateFlow<PhotoGalleryInfo?> = _viewingPhotos.asStateFlow()
 
     // History & Search
     private val _searchQuery = MutableStateFlow("")
@@ -133,6 +168,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     }
+                    is DownloadProgressEvent.PhotoProgress -> {
+                        val current = _downloadState.value
+                        if ((current is DownloadUiState.PhotoDownloading || current is DownloadUiState.Downloading) &&
+                            (current as? DownloadUiState.PhotoDownloading)?.info?.originalTiktokUrl == event.url ||
+                            (current as? DownloadUiState.Downloading)?.info?.originalTiktokUrl == event.url
+                        ) {
+                            _downloadState.value = DownloadUiState.PhotoDownloading(
+                                completedCount = event.completedCount,
+                                totalCount = event.totalCount,
+                                percent = event.percent,
+                                info = event.info
+                            )
+                        }
+                        val shareCurrent = _shareModalState.value
+                        if (shareCurrent is ShareModalState.Downloading && shareCurrent.info.originalTiktokUrl == event.url) {
+                            _shareModalState.value = ShareModalState.Downloading(
+                                percent = event.percent,
+                                info = event.info,
+                                completedCount = event.completedCount,
+                                totalCount = event.totalCount
+                            )
+                        }
+                    }
                     is DownloadProgressEvent.Success -> {
                         val current = _downloadState.value
                         if (current is DownloadUiState.Downloading && current.info.originalTiktokUrl == event.url) {
@@ -147,18 +205,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     }
-                    is DownloadProgressEvent.Error -> {
+                    is DownloadProgressEvent.PhotoSuccess -> {
                         val current = _downloadState.value
-                        if (current is DownloadUiState.Downloading && current.info.originalTiktokUrl == event.url) {
-                            _downloadState.value = DownloadUiState.Error(
-                                event.message
-                            )
+                        if ((current is DownloadUiState.PhotoDownloading || current is DownloadUiState.Downloading)) {
+                            _downloadState.value = DownloadUiState.PhotoSuccess(event.outcome)
                         }
                         val shareCurrent = _shareModalState.value
                         if (shareCurrent is ShareModalState.Downloading && shareCurrent.info.originalTiktokUrl == event.url) {
-                            _shareModalState.value = ShareModalState.Error(
-                                event.message
+                            _shareModalState.value = ShareModalState.Success(
+                                info = event.outcome.postInfo,
+                                uriString = event.outcome.savedUris.firstOrNull() ?: "",
+                                filePath = event.outcome.primaryFilePath,
+                                savedUris = event.outcome.savedUris
                             )
+                        }
+                    }
+                    is DownloadProgressEvent.Error -> {
+                        val current = _downloadState.value
+                        if (current is DownloadUiState.Downloading || current is DownloadUiState.PhotoDownloading) {
+                            _downloadState.value = DownloadUiState.Error(event.message)
+                        }
+                        val shareCurrent = _shareModalState.value
+                        if (shareCurrent is ShareModalState.Downloading && shareCurrent.info.originalTiktokUrl == event.url) {
+                            _shareModalState.value = ShareModalState.Error(event.message)
                         }
                     }
                 }
@@ -201,7 +270,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         } catch (e: Exception) {
-            // Clipboard access might be restricted on background or certain devices
+            // Clipboard access might be restricted
         }
     }
 
@@ -232,7 +301,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun fetchVideoInfo() {
         val raw = _urlInput.value.trim()
         if (raw.isBlank()) {
-            _downloadState.value = DownloadUiState.Error("Please enter or paste a TikTok video link.")
+            _downloadState.value = DownloadUiState.Error("Please enter or paste a TikTok link.")
             return
         }
 
@@ -242,52 +311,111 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val result = TikwmApiService.fetchVideoInfo(raw)
             result.fold(
                 onSuccess = { info ->
-                    _downloadState.value = DownloadUiState.InfoLoaded(info)
+                    val initialSelected = if (info.isPhotoPost) info.images.toSet() else emptySet()
+                    _downloadState.value = DownloadUiState.InfoLoaded(info, initialSelected)
                 },
                 onFailure = { error ->
                     _downloadState.value = DownloadUiState.Error(
-                        error.localizedMessage ?: "Failed to fetch video. Please check the URL and try again."
+                        error.localizedMessage ?: "Failed to fetch TikTok details. Please check the URL and try again."
                     )
                 }
             )
         }
     }
 
+    fun toggleImageSelection(imageUrl: String) {
+        val current = _downloadState.value
+        if (current is DownloadUiState.InfoLoaded) {
+            val updated = if (current.selectedImages.contains(imageUrl)) {
+                current.selectedImages - imageUrl
+            } else {
+                current.selectedImages + imageUrl
+            }
+            _downloadState.value = current.copy(selectedImages = updated)
+        }
+    }
+
+    fun selectAllImages() {
+        val current = _downloadState.value
+        if (current is DownloadUiState.InfoLoaded) {
+            _downloadState.value = current.copy(selectedImages = current.info.images.toSet())
+        }
+    }
+
+    fun deselectAllImages() {
+        val current = _downloadState.value
+        if (current is DownloadUiState.InfoLoaded) {
+            _downloadState.value = current.copy(selectedImages = emptySet())
+        }
+    }
+
     fun startDownload() {
         val state = _downloadState.value
-        val info = when (state) {
-            is DownloadUiState.InfoLoaded -> state.info
-            is DownloadUiState.Success -> state.outcome.videoInfo
+        val (info, selectedImages) = when (state) {
+            is DownloadUiState.InfoLoaded -> Pair(state.info, state.selectedImages.toList())
+            is DownloadUiState.Success -> Pair(state.outcome.videoInfo, emptyList())
+            is DownloadUiState.PhotoSuccess -> Pair(state.outcome.postInfo, state.outcome.postInfo.images)
             else -> {
                 fetchVideoInfo()
                 return
             }
         }
 
-        _downloadState.value = DownloadUiState.Downloading(
-            percent = 0,
-            downloadedBytes = 0L,
-            totalBytes = info.estimatedSizeBytes,
-            info = info
-        )
+        if (info.isPhotoPost) {
+            val imagesToDownload = if (selectedImages.isNotEmpty()) selectedImages else info.images
+            if (imagesToDownload.isEmpty()) {
+                _downloadState.value = DownloadUiState.Error("Please select at least 1 photo to download.")
+                return
+            }
 
-        val serviceStarted = try {
-            VideoDownloadService.startDownload(
-                context = getApplication(),
-                videoUrl = info.originalTiktokUrl,
-                preferHd = _preferHd.value,
-                preloadedInfo = info
+            _downloadState.value = DownloadUiState.PhotoDownloading(
+                completedCount = 0,
+                totalCount = imagesToDownload.size,
+                percent = 0,
+                info = info
             )
-        } catch (t: Throwable) {
-            false
-        }
 
-        if (!serviceStarted) {
-            runDirectDownload(info)
+            val serviceStarted = try {
+                VideoDownloadService.startDownload(
+                    context = getApplication(),
+                    videoUrl = info.originalTiktokUrl,
+                    preferHd = _preferHd.value,
+                    preloadedInfo = info,
+                    selectedImages = imagesToDownload
+                )
+            } catch (t: Throwable) {
+                false
+            }
+
+            if (!serviceStarted) {
+                runDirectPhotoDownload(info, imagesToDownload)
+            }
+        } else {
+            _downloadState.value = DownloadUiState.Downloading(
+                percent = 0,
+                downloadedBytes = 0L,
+                totalBytes = info.estimatedSizeBytes,
+                info = info
+            )
+
+            val serviceStarted = try {
+                VideoDownloadService.startDownload(
+                    context = getApplication(),
+                    videoUrl = info.originalTiktokUrl,
+                    preferHd = _preferHd.value,
+                    preloadedInfo = info
+                )
+            } catch (t: Throwable) {
+                false
+            }
+
+            if (!serviceStarted) {
+                runDirectVideoDownload(info)
+            }
         }
     }
 
-    private fun runDirectDownload(info: TikTokVideoInfo) {
+    private fun runDirectVideoDownload(info: TikTokVideoInfo) {
         viewModelScope.launch {
             val result = downloader.downloadVideo(info, _preferHd.value) { percent, downloaded, total ->
                 _downloadState.value = DownloadUiState.Downloading(
@@ -311,6 +439,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun runDirectPhotoDownload(info: TikTokVideoInfo, images: List<String>) {
+        viewModelScope.launch {
+            val result = downloader.downloadPhotoPost(info, images) { completed, total, percent ->
+                _downloadState.value = DownloadUiState.PhotoDownloading(
+                    completedCount = completed,
+                    totalCount = total,
+                    percent = percent,
+                    info = info
+                )
+            }
+
+            result.fold(
+                onSuccess = { outcome ->
+                    _downloadState.value = DownloadUiState.PhotoSuccess(outcome)
+                },
+                onFailure = { error ->
+                    _downloadState.value = DownloadUiState.Error(
+                        error.localizedMessage ?: "Failed to download photos. Please try again."
+                    )
+                }
+            )
+        }
+    }
+
     fun resetDownloadState() {
         _downloadState.value = DownloadUiState.Idle
         _urlInput.value = ""
@@ -327,37 +479,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val infoResult = TikwmApiService.fetchVideoInfo(extractedUrl)
             infoResult.fold(
                 onSuccess = { info ->
-                    _shareModalState.value = ShareModalState.Downloading(0, info)
-                    val serviceStarted = try {
-                        VideoDownloadService.startDownload(
-                            context = getApplication(),
-                            videoUrl = info.originalTiktokUrl,
-                            preferHd = _preferHd.value,
-                            preloadedInfo = info
-                        )
-                    } catch (t: Throwable) {
-                        false
-                    }
-
-                    if (!serviceStarted) {
-                        val downloadResult = downloader.downloadVideo(info, _preferHd.value) { percent, _, _ ->
-                            _shareModalState.value = ShareModalState.Downloading(percent, info)
-                        }
-                        downloadResult.fold(
-                            onSuccess = { outcome ->
-                                _shareModalState.value = ShareModalState.Success(
-                                    info = info,
-                                    uriString = outcome.uriString,
-                                    filePath = outcome.filePath
-                                )
-                            },
-                            onFailure = { dlErr ->
-                                _shareModalState.value = ShareModalState.Error(
-                                    dlErr.localizedMessage ?: "Failed to download video."
-                                )
-                            }
-                        )
-                    }
+                    val selected = if (info.isPhotoPost) info.images.toSet() else emptySet()
+                    _shareModalState.value = ShareModalState.Preview(info, selected)
                 },
                 onFailure = { err ->
                     _shareModalState.value = ShareModalState.Error(
@@ -365,6 +488,127 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             )
+        }
+    }
+
+    fun toggleShareModalImageSelection(imageUrl: String) {
+        val current = _shareModalState.value
+        if (current is ShareModalState.Preview) {
+            val updated = if (current.selectedImages.contains(imageUrl)) {
+                current.selectedImages - imageUrl
+            } else {
+                current.selectedImages + imageUrl
+            }
+            _shareModalState.value = current.copy(selectedImages = updated)
+        }
+    }
+
+    fun selectAllShareModalImages() {
+        val current = _shareModalState.value
+        if (current is ShareModalState.Preview) {
+            _shareModalState.value = current.copy(selectedImages = current.info.images.toSet())
+        }
+    }
+
+    fun deselectAllShareModalImages() {
+        val current = _shareModalState.value
+        if (current is ShareModalState.Preview) {
+            _shareModalState.value = current.copy(selectedImages = emptySet())
+        }
+    }
+
+    fun startShareModalDownload() {
+        val current = _shareModalState.value
+        if (current !is ShareModalState.Preview) return
+        val info = current.info
+
+        if (info.isPhotoPost) {
+            val selected = current.selectedImages.toList().ifEmpty { info.images }
+            if (selected.isEmpty()) {
+                _shareModalState.value = ShareModalState.Error("Please select at least 1 image to download.")
+                return
+            }
+
+            _shareModalState.value = ShareModalState.Downloading(
+                percent = 0,
+                info = info,
+                completedCount = 0,
+                totalCount = selected.size
+            )
+
+            val serviceStarted = try {
+                VideoDownloadService.startDownload(
+                    context = getApplication(),
+                    videoUrl = info.originalTiktokUrl,
+                    preferHd = _preferHd.value,
+                    preloadedInfo = info,
+                    selectedImages = selected
+                )
+            } catch (t: Throwable) {
+                false
+            }
+
+            if (!serviceStarted) {
+                viewModelScope.launch {
+                    val result = downloader.downloadPhotoPost(info, selected) { completed, total, percent ->
+                        _shareModalState.value = ShareModalState.Downloading(
+                            percent = percent,
+                            info = info,
+                            completedCount = completed,
+                            totalCount = total
+                        )
+                    }
+                    result.fold(
+                        onSuccess = { outcome ->
+                            _shareModalState.value = ShareModalState.Success(
+                                info = info,
+                                uriString = outcome.savedUris.firstOrNull() ?: "",
+                                filePath = outcome.primaryFilePath,
+                                savedUris = outcome.savedUris
+                            )
+                        },
+                        onFailure = { err ->
+                            _shareModalState.value = ShareModalState.Error(
+                                err.localizedMessage ?: "Failed to download photos."
+                            )
+                        }
+                    )
+                }
+            }
+        } else {
+            _shareModalState.value = ShareModalState.Downloading(0, info)
+            val serviceStarted = try {
+                VideoDownloadService.startDownload(
+                    context = getApplication(),
+                    videoUrl = info.originalTiktokUrl,
+                    preferHd = _preferHd.value,
+                    preloadedInfo = info
+                )
+            } catch (t: Throwable) {
+                false
+            }
+
+            if (!serviceStarted) {
+                viewModelScope.launch {
+                    val downloadResult = downloader.downloadVideo(info, _preferHd.value) { percent, _, _ ->
+                        _shareModalState.value = ShareModalState.Downloading(percent, info)
+                    }
+                    downloadResult.fold(
+                        onSuccess = { outcome ->
+                            _shareModalState.value = ShareModalState.Success(
+                                info = info,
+                                uriString = outcome.uriString,
+                                filePath = outcome.filePath
+                            )
+                        },
+                        onFailure = { dlErr ->
+                            _shareModalState.value = ShareModalState.Error(
+                                dlErr.localizedMessage ?: "Failed to download video."
+                            )
+                        }
+                    )
+                }
+            }
         }
     }
 
@@ -383,6 +627,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun closeInAppPlayer() {
         _playingVideo.value = null
+    }
+
+    fun openPhotoGallery(title: String, author: String, photoUris: List<String>, initialIndex: Int = 0) {
+        _viewingPhotos.value = PhotoGalleryInfo(
+            title = title,
+            author = author,
+            photoUris = photoUris,
+            initialIndex = initialIndex
+        )
+    }
+
+    fun closePhotoGallery() {
+        _viewingPhotos.value = null
     }
 
     // History Actions

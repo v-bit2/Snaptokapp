@@ -8,7 +8,7 @@ import com.example.data.entity.DownloadedVideoEntity
 
 @Database(
     entities = [DownloadedVideoEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

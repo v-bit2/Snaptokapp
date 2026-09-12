@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -36,9 +37,22 @@ sealed interface DownloadProgressEvent {
         val info: TikTokVideoInfo
     ) : DownloadProgressEvent
 
+    data class PhotoProgress(
+        val url: String,
+        val completedCount: Int,
+        val totalCount: Int,
+        val percent: Int,
+        val info: TikTokVideoInfo
+    ) : DownloadProgressEvent
+
     data class Success(
         val url: String,
         val outcome: VideoDownloader.DownloadOutcome
+    ) : DownloadProgressEvent
+
+    data class PhotoSuccess(
+        val url: String,
+        val outcome: VideoDownloader.PhotoDownloadOutcome
     ) : DownloadProgressEvent
 
     data class Error(
@@ -56,6 +70,7 @@ class VideoDownloadService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
     private lateinit var notificationManager: NotificationManager
     private lateinit var downloader: VideoDownloader
+    private val activeDownloads = java.util.concurrent.atomic.AtomicInteger(0)
 
     companion object {
         const val CHANNEL_ID = "snaptok_download_channel"
@@ -64,26 +79,35 @@ class VideoDownloadService : Service() {
         const val ACTION_START_DOWNLOAD = "ACTION_START_DOWNLOAD"
         const val EXTRA_VIDEO_URL = "EXTRA_VIDEO_URL"
         const val EXTRA_PREFER_HD = "EXTRA_PREFER_HD"
+        const val EXTRA_SELECTED_IMAGES = "EXTRA_SELECTED_IMAGES"
 
         private val _progressEvents = MutableSharedFlow<DownloadProgressEvent>(replay = 1, extraBufferCapacity = 64)
         val progressEvents: SharedFlow<DownloadProgressEvent> = _progressEvents.asSharedFlow()
 
         private val preloadedInfoCache = ConcurrentHashMap<String, TikTokVideoInfo>()
+        private val selectedImagesCache = ConcurrentHashMap<String, List<String>>()
 
         fun startDownload(
             context: Context,
             videoUrl: String,
             preferHd: Boolean = true,
-            preloadedInfo: TikTokVideoInfo? = null
+            preloadedInfo: TikTokVideoInfo? = null,
+            selectedImages: List<String>? = null
         ): Boolean {
             if (preloadedInfo != null) {
                 preloadedInfoCache[videoUrl] = preloadedInfo
+            }
+            if (selectedImages != null) {
+                selectedImagesCache[videoUrl] = selectedImages
             }
             return try {
                 val intent = Intent(context, VideoDownloadService::class.java).apply {
                     action = ACTION_START_DOWNLOAD
                     putExtra(EXTRA_VIDEO_URL, videoUrl)
                     putExtra(EXTRA_PREFER_HD, preferHd)
+                    if (selectedImages != null) {
+                        putStringArrayListExtra(EXTRA_SELECTED_IMAGES, ArrayList(selectedImages))
+                    }
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)
@@ -109,11 +133,16 @@ class VideoDownloadService : Service() {
         if (intent?.action == ACTION_START_DOWNLOAD) {
             val videoUrl = intent.getStringExtra(EXTRA_VIDEO_URL) ?: ""
             val preferHd = intent.getBooleanExtra(EXTRA_PREFER_HD, true)
+            val selectedImages = intent.getStringArrayListExtra(EXTRA_SELECTED_IMAGES) ?: selectedImagesCache[videoUrl]
+
             if (videoUrl.isNotBlank()) {
+                activeDownloads.incrementAndGet()
                 tryStartForeground()
-                processDownload(videoUrl, preferHd)
+                processDownload(videoUrl, preferHd, selectedImages)
             } else {
-                stopSelf()
+                if (activeDownloads.get() <= 0) {
+                    stopSelf()
+                }
             }
         }
         return START_NOT_STICKY
@@ -150,27 +179,33 @@ class VideoDownloadService : Service() {
         }
     }
 
-    private fun processDownload(url: String, preferHd: Boolean) {
+    private fun processDownload(url: String, preferHd: Boolean, explicitSelectedImages: List<String>?) {
         serviceScope.launch {
             val cached = preloadedInfoCache[url]
-            if (cached != null) {
-                downloadVideo(url, cached, preferHd)
+            val info = if (cached != null) {
+                cached
             } else {
-                updateNotification("Fetching video information…", 0, true)
+                updateNotification("Fetching post information…", 0, true)
                 val infoResult = TikwmApiService.fetchVideoInfo(url)
+                if (infoResult.isFailure) {
+                    val errMsg = infoResult.exceptionOrNull()?.localizedMessage ?: "Failed to fetch post details"
+                    showFailedNotification(errMsg)
+                    _progressEvents.tryEmit(DownloadProgressEvent.Error(url, errMsg))
+                    safeStopForeground()
+                    stopSelf()
+                    return@launch
+                }
+                infoResult.getOrThrow()
+            }
 
-                infoResult.fold(
-                    onSuccess = { info ->
-                        downloadVideo(url, info, preferHd)
-                    },
-                    onFailure = { error ->
-                        val errMsg = error.localizedMessage ?: "Failed to fetch video details"
-                        showFailedNotification(errMsg)
-                        _progressEvents.tryEmit(DownloadProgressEvent.Error(url, errMsg))
-                        safeStopForeground()
-                        stopSelf()
-                    }
-                )
+            if (info.isPhotoPost) {
+                val imagesToDownload = explicitSelectedImages?.takeIf { it.isNotEmpty() }
+                    ?: selectedImagesCache[url]?.takeIf { it.isNotEmpty() }
+                    ?: info.images
+
+                downloadPhotos(url, info, imagesToDownload)
+            } else {
+                downloadVideo(url, info, preferHd)
             }
         }
     }
@@ -187,21 +222,73 @@ class VideoDownloadService : Service() {
 
         result.fold(
             onSuccess = { outcome ->
-                showCompleteNotification(outcome.videoInfo.title, outcome.uriString, outcome.filePath)
+                showCompleteNotification(outcome.videoInfo.title, outcome.uriString, outcome.filePath, isPhoto = false)
                 _progressEvents.tryEmit(DownloadProgressEvent.Success(url, outcome))
-                preloadedInfoCache.remove(url)
-                safeStopForeground()
-                stopSelf()
+                cleanup(url)
+                checkFinishService()
             },
             onFailure = { error ->
                 val errMsg = error.localizedMessage ?: "Download failed"
                 showFailedNotification(errMsg)
                 _progressEvents.tryEmit(DownloadProgressEvent.Error(url, errMsg))
-                preloadedInfoCache.remove(url)
-                safeStopForeground()
-                stopSelf()
+                cleanup(url)
+                checkFinishService()
             }
         )
+    }
+
+    private suspend fun downloadPhotos(url: String, info: TikTokVideoInfo, images: List<String>) {
+        val total = images.size
+        updateNotification("Downloading 0 of $total photos… (0%)", 0, false)
+        _progressEvents.tryEmit(DownloadProgressEvent.PhotoProgress(url, 0, total, 0, info))
+
+        val result = downloader.downloadPhotoPost(info, images) { completed, totalCount, percent ->
+            updateNotification("Downloading $completed of $totalCount photos… ($percent%)", percent, false)
+            _progressEvents.tryEmit(DownloadProgressEvent.PhotoProgress(url, completed, totalCount, percent, info))
+        }
+
+        result.fold(
+            onSuccess = { outcome ->
+                val uriString = outcome.savedUris.firstOrNull() ?: ""
+                showCompleteNotification(
+                    "${outcome.successfulCount} photos by @${info.authorUsername}",
+                    uriString,
+                    outcome.primaryFilePath,
+                    isPhoto = true
+                )
+                _progressEvents.tryEmit(DownloadProgressEvent.PhotoSuccess(url, outcome))
+                cleanup(url)
+                checkFinishService()
+            },
+            onFailure = { error ->
+                val errMsg = error.localizedMessage ?: "Photo download failed"
+                showFailedNotification(errMsg)
+                _progressEvents.tryEmit(DownloadProgressEvent.Error(url, errMsg))
+                cleanup(url)
+                checkFinishService()
+            }
+        )
+    }
+
+    private fun checkFinishService() {
+        if (activeDownloads.decrementAndGet() <= 0) {
+            safeStopForeground()
+            stopSelf()
+        }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.i("VideoDownloadService", "App swiped away from recent tasks. Active downloads: ${activeDownloads.get()}")
+        if (activeDownloads.get() <= 0) {
+            safeStopForeground()
+            stopSelf()
+        }
+    }
+
+    private fun cleanup(url: String) {
+        preloadedInfoCache.remove(url)
+        selectedImagesCache.remove(url)
     }
 
     private fun createNotificationChannel() {
@@ -243,23 +330,29 @@ class VideoDownloadService : Service() {
         }
     }
 
-    private fun showCompleteNotification(title: String, uriString: String, filePath: String) {
+    private fun showCompleteNotification(title: String, uriString: String, filePath: String, isPhoto: Boolean) {
         try {
-            val playIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(android.net.Uri.parse(uriString), "video/mp4")
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                val uri = try {
+                    val parsed = Uri.parse(uriString)
+                    if (parsed.scheme == "content") parsed else Uri.fromFile(java.io.File(filePath))
+                } catch (e: Exception) {
+                    Uri.fromFile(java.io.File(filePath))
+                }
+                setDataAndType(uri, if (isPhoto) "image/*" else "video/mp4")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             val pendingIntent = PendingIntent.getActivity(
                 this,
                 System.currentTimeMillis().toInt(),
-                playIntent,
+                viewIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            val displayTitle = title.ifBlank { "TikTok Video" }
+            val displayTitle = title.ifBlank { if (isPhoto) "TikTok Photos" else "TikTok Video" }
             val notification = NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_download_notification)
-                .setContentTitle("Download complete — tap to view")
+                .setContentTitle(if (isPhoto) "Photos saved to Gallery!" else "Download complete — tap to play")
                 .setContentText("Saved to Gallery: $displayTitle")
                 .setStyle(
                     NotificationCompat.BigTextStyle()

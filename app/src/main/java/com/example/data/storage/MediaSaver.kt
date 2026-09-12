@@ -38,8 +38,6 @@ object MediaSaver {
         val sanitizedTitle = title.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(30)
         val fileName = "SnapTok_${sanitizedTitle}_$timestamp.mp4"
 
-        // Step 1: Buffer network stream into a temporary cache file.
-        // This decouples network streaming from MediaStore file locks and guarantees progress reporting.
         val tempFile = File(context.cacheDir, "temp_$fileName")
         var totalWritten = 0L
         try {
@@ -91,12 +89,10 @@ object MediaSaver {
                         sizeBytes = totalWritten
                     )
                 }
-            } catch (ignored: Exception) {
-                // MediaStore insert or stream failed, proceed to Attempt 2
-            }
+            } catch (ignored: Exception) {}
         }
 
-        // Attempt 2: Direct public Movies directory (Android 9 and below, or if MediaStore threw)
+        // Attempt 2: Direct public Movies directory
         try {
             val moviesDir = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
@@ -124,12 +120,129 @@ object MediaSaver {
                 filePath = targetFile.absolutePath,
                 sizeBytes = totalWritten
             )
-        } catch (ignored: Exception) {
-            // Public storage failed, proceed to Attempt 3
-        }
+        } catch (ignored: Exception) {}
 
         // Attempt 3: Guaranteed safe app-specific external files dir or internal files with FileProvider
         val fallbackDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir
+        if (!fallbackDir.exists()) {
+            fallbackDir.mkdirs()
+        }
+        val safeFallbackFile = File(fallbackDir, fileName)
+        tempFile.copyTo(safeFallbackFile, overwrite = true)
+        tempFile.delete()
+
+        val safeUri = try {
+            FileProvider.getUriForFile(context, "${context.packageName}.provider", safeFallbackFile)
+        } catch (e: Exception) {
+            Uri.fromFile(safeFallbackFile)
+        }
+
+        return SaveResult(
+            uri = safeUri,
+            filePath = safeFallbackFile.absolutePath,
+            sizeBytes = totalWritten
+        )
+    }
+
+    /**
+     * Saves a single image stream directly to public MediaStore (Pictures/SnapTok).
+     */
+    fun saveImageToGallery(
+        context: Context,
+        inputStream: InputStream,
+        title: String,
+        index: Int,
+        total: Int
+    ): SaveResult {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val sanitizedTitle = title.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(24)
+        val fileName = "SnapTok_${sanitizedTitle}_${index + 1}of${total}_$timestamp.jpg"
+
+        val tempFile = File(context.cacheDir, "temp_$fileName")
+        var totalWritten = 0L
+        try {
+            FileOutputStream(tempFile).use { fos ->
+                val buffer = ByteArray(16 * 1024)
+                var read: Int
+                while (inputStream.read(buffer).also { read = it } != -1) {
+                    fos.write(buffer, 0, read)
+                    totalWritten += read
+                }
+                fos.flush()
+            }
+        } catch (e: Exception) {
+            tempFile.delete()
+            throw e
+        }
+
+        val resolver = context.contentResolver
+
+        // Attempt 1: Scoped Storage MediaStore (Android 10+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/SnapTok")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+
+                val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { outStream ->
+                        tempFile.inputStream().use { inStream ->
+                            inStream.copyTo(outStream)
+                        }
+                        outStream.flush()
+                    }
+                    contentValues.clear()
+                    contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    resolver.update(uri, contentValues, null, null)
+
+                    val publicPicturesPath = "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)}/SnapTok/$fileName"
+                    tempFile.delete()
+
+                    return SaveResult(
+                        uri = uri,
+                        filePath = publicPicturesPath,
+                        sizeBytes = totalWritten
+                    )
+                }
+            } catch (ignored: Exception) {}
+        }
+
+        // Attempt 2: Direct public Pictures directory
+        try {
+            val picturesDir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                "SnapTok"
+            )
+            if (!picturesDir.exists()) {
+                picturesDir.mkdirs()
+            }
+            val targetFile = File(picturesDir, fileName)
+            tempFile.copyTo(targetFile, overwrite = true)
+
+            val contentValues = ContentValues().apply {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    put(MediaStore.Images.Media.DATA, targetFile.absolutePath)
+                }
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            }
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                ?: Uri.fromFile(targetFile)
+
+            tempFile.delete()
+            return SaveResult(
+                uri = uri,
+                filePath = targetFile.absolutePath,
+                sizeBytes = totalWritten
+            )
+        } catch (ignored: Exception) {}
+
+        // Attempt 3: Guaranteed safe app-specific external files dir or internal files with FileProvider
+        val fallbackDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: context.filesDir
         if (!fallbackDir.exists()) {
             fallbackDir.mkdirs()
         }
@@ -164,8 +277,28 @@ object MediaSaver {
         try {
             context.startActivity(intent)
         } catch (e: Exception) {
-            // If no default handler, try chooser
             val chooser = Intent.createChooser(intent, "Play Video With").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+        }
+    }
+
+    fun viewImage(context: Context, uriString: String, filePath: String) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            val uri = try {
+                val parsed = Uri.parse(uriString)
+                if (parsed.scheme == "content") parsed else Uri.fromFile(File(filePath))
+            } catch (e: Exception) {
+                Uri.fromFile(File(filePath))
+            }
+            setDataAndType(uri, "image/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            val chooser = Intent.createChooser(intent, "View Image With").apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(chooser)
@@ -192,6 +325,52 @@ object MediaSaver {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         val chooser = Intent.createChooser(shareIntent, "Share Video").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
+    }
+
+    fun shareImage(context: Context, uriString: String, filePath: String, title: String) {
+        val uri = try {
+            val parsed = Uri.parse(uriString)
+            if (parsed.scheme == "content") {
+                parsed
+            } else {
+                val file = File(filePath)
+                FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+            }
+        } catch (e: Exception) {
+            Uri.parse(uriString)
+        }
+
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/jpeg"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_TEXT, "Downloaded with SnapTok: $title")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val chooser = Intent.createChooser(shareIntent, "Share Image").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
+    }
+
+    fun shareMultipleImages(context: Context, uriStrings: List<String>, title: String) {
+        val uris = ArrayList<Uri>()
+        for (u in uriStrings) {
+            try {
+                uris.add(Uri.parse(u))
+            } catch (ignored: Exception) {}
+        }
+        if (uris.isEmpty()) return
+
+        val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "image/jpeg"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            putExtra(Intent.EXTRA_TEXT, "Downloaded with SnapTok: $title")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val chooser = Intent.createChooser(shareIntent, "Share Images").apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(chooser)
