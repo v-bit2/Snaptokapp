@@ -37,6 +37,13 @@ sealed interface DownloadProgressEvent {
         val info: TikTokVideoInfo
     ) : DownloadProgressEvent
 
+    data class Processing(
+        val url: String,
+        val percent: Int,
+        val statusMessage: String,
+        val info: TikTokVideoInfo
+    ) : DownloadProgressEvent
+
     data class PhotoProgress(
         val url: String,
         val completedCount: Int,
@@ -214,11 +221,19 @@ class VideoDownloadService : Service() {
         updateNotification("Downloading: ${info.authorUsername}… 0%", 0, false)
         _progressEvents.tryEmit(DownloadProgressEvent.Progress(url, 0, 0L, info.estimatedSizeBytes, info))
 
-        val result = downloader.downloadVideo(info, preferHd) { percent, bytesWritten, totalBytes ->
-            val formattedSize = MediaSaver.formatBytes(bytesWritten)
-            updateNotification("Downloading ${info.authorUsername}… $percent% ($formattedSize)", percent, false)
-            _progressEvents.tryEmit(DownloadProgressEvent.Progress(url, percent, bytesWritten, totalBytes, info))
-        }
+        val result = downloader.downloadVideo(
+            info = info,
+            preferHd = preferHd,
+            onProgress = { percent, bytesWritten, totalBytes ->
+                val formattedSize = MediaSaver.formatBytes(bytesWritten)
+                updateNotification("Downloading ${info.authorUsername}… $percent% ($formattedSize)", percent, false)
+                _progressEvents.tryEmit(DownloadProgressEvent.Progress(url, percent, bytesWritten, totalBytes, info))
+            },
+            onProcessing = { percent, statusMessage ->
+                updateNotification("Optimizing video: $percent% - $statusMessage", percent, false)
+                _progressEvents.tryEmit(DownloadProgressEvent.Processing(url, percent, statusMessage, info))
+            }
+        )
 
         result.fold(
             onSuccess = { outcome ->

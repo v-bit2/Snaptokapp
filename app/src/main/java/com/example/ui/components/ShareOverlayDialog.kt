@@ -401,6 +401,66 @@ fun ShareOverlayDialog(
                             }
                         }
 
+                        is ShareModalState.Processing -> {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AsyncImage(
+                                        model = modalState.info.coverUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(width = 44.dp, height = 58.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Optimizing Video… ${modalState.percent}%",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TealAccent
+                                        )
+                                        Text(
+                                            text = "Stage 2/2: Universal H.264 CFR (30fps)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = modalState.statusMessage,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                LinearProgressIndicator(
+                                    progress = { (modalState.percent / 100f).coerceIn(0f, 1f) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = TealAccent,
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+
+                                Text(
+                                    text = "Re-encoding ensures seamless editing in Alight Motion, CapCut & Gallery",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+
                         is ShareModalState.Success -> {
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
@@ -430,6 +490,20 @@ fun ShareOverlayDialog(
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
+
+                                if (!modalState.info.isPhotoPost) {
+                                    val compatibilityBadge = if (modalState.isCompatibilityReencoded) {
+                                        "Universal H.264 CFR • Compatible with Alight Motion & CapCut"
+                                    } else {
+                                        modalState.encodingNote ?: "Ready to watch & edit"
+                                    }
+                                    Text(
+                                        text = compatibilityBadge,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (modalState.isCompatibilityReencoded) TealAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 10.sp
+                                    )
+                                }
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),

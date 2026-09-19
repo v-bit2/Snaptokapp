@@ -105,6 +105,11 @@ sealed interface OverlayUiState {
         val totalBytes: Long,
         val info: TikTokVideoInfo
     ) : OverlayUiState
+    data class Processing(
+        val percent: Int,
+        val statusMessage: String,
+        val info: TikTokVideoInfo
+    ) : OverlayUiState
     data class PhotoDownloading(
         val completedCount: Int,
         val totalCount: Int,
@@ -230,9 +235,22 @@ fun ShareOverlayScreen(
                         )
                     }
                 }
+                is DownloadProgressEvent.Processing -> {
+                    val current = state
+                    if ((current is OverlayUiState.Downloading || current is OverlayUiState.Processing)) {
+                        state = OverlayUiState.Processing(
+                            percent = event.percent,
+                            statusMessage = event.statusMessage,
+                            info = event.info
+                        )
+                    }
+                }
                 is DownloadProgressEvent.Success -> {
                     val current = state
-                    if (current is OverlayUiState.Downloading && current.info.originalTiktokUrl == event.url) {
+                    if ((current is OverlayUiState.Downloading || current is OverlayUiState.Processing) &&
+                        ((current as? OverlayUiState.Downloading)?.info?.originalTiktokUrl == event.url ||
+                         (current as? OverlayUiState.Processing)?.info?.originalTiktokUrl == event.url ||
+                         event.outcome.videoInfo.originalTiktokUrl == event.url)) {
                         state = OverlayUiState.Success(event.outcome)
                     }
                 }
@@ -244,7 +262,7 @@ fun ShareOverlayScreen(
                 }
                 is DownloadProgressEvent.Error -> {
                     val current = state
-                    if (current is OverlayUiState.Downloading || current is OverlayUiState.PhotoDownloading) {
+                    if (current is OverlayUiState.Downloading || current is OverlayUiState.Processing || current is OverlayUiState.PhotoDownloading) {
                         state = OverlayUiState.Error(
                             message = event.message,
                             canRetry = true,
@@ -619,9 +637,16 @@ fun ShareOverlayScreen(
                                                 if (!started) {
                                                     coroutineScope.launch {
                                                         val downloader = VideoDownloader(context)
-                                                        val res = downloader.downloadVideo(info, true) { pct, bytes, total ->
-                                                            state = OverlayUiState.Downloading(pct, bytes, total, info)
-                                                        }
+                                                        val res = downloader.downloadVideo(
+                                                            info = info,
+                                                            preferHd = true,
+                                                            onProgress = { pct, bytes, total ->
+                                                                state = OverlayUiState.Downloading(pct, bytes, total, info)
+                                                            },
+                                                            onProcessing = { pct, msg ->
+                                                                state = OverlayUiState.Processing(pct, msg, info)
+                                                            }
+                                                        )
                                                         res.fold(
                                                             onSuccess = { outcome ->
                                                                 state = OverlayUiState.Success(outcome)
@@ -720,6 +745,118 @@ fun ShareOverlayScreen(
                                     color = TealAccent,
                                     trackColor = MaterialTheme.colorScheme.surfaceVariant
                                 )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Stage 1/2: Downloading stream…",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 11.sp
+                                    )
+                                    TextButton(
+                                        onClick = onDismiss,
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text("Dismiss", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        }
+
+                        is OverlayUiState.Processing -> {
+                            val info = uiState.info
+                            val animatedProgress by animateFloatAsState(
+                                targetValue = (uiState.percent / 100f).coerceIn(0f, 1f),
+                                label = "ProcessingProgressAnimation"
+                            )
+
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 44.dp, height = 58.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                    ) {
+                                        AsyncImage(
+                                            model = info.coverUrl,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    }
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Stage 2/2: Optimizing Video",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TealAccent,
+                                            fontSize = 11.sp
+                                        )
+                                        Text(
+                                            text = "${uiState.percent}% • ${uiState.statusMessage}",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Universal H.264 CFR (CapCut / Alight Motion)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    CircularProgressIndicator(
+                                        progress = { animatedProgress },
+                                        color = TealAccent,
+                                        modifier = Modifier.size(28.dp),
+                                        strokeWidth = 3.dp,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                }
+
+                                LinearProgressIndicator(
+                                    progress = { animatedProgress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(5.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = TealAccent,
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Downloaded ✓ → Encoding CFR…",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 10.sp
+                                    )
+                                    TextButton(
+                                        onClick = onDismiss,
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text("Dismiss (runs in background)", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
                             }
                         }
 
@@ -778,10 +915,15 @@ fun ShareOverlayScreen(
                                             fontWeight = FontWeight.Bold,
                                             color = SuccessGreen
                                         )
+                                        val compatibilityNote = if (outcome.isCompatibilityReencoded) {
+                                            "H.264 CFR • Universal Editor Compatible"
+                                        } else {
+                                            outcome.encodingNote ?: "Ready to watch & edit"
+                                        }
                                         Text(
-                                            text = "${MediaSaver.formatBytes(outcome.fileSize)} • Ready to watch",
+                                            text = "${MediaSaver.formatBytes(outcome.fileSize)} • $compatibilityNote",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = if (outcome.isCompatibilityReencoded) TealAccent else MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 10.sp
                                         )
                                     }

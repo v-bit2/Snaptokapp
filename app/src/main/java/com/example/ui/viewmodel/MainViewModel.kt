@@ -41,6 +41,11 @@ sealed interface DownloadUiState {
         val totalBytes: Long,
         val info: TikTokVideoInfo
     ) : DownloadUiState
+    data class Processing(
+        val percent: Int,
+        val statusMessage: String,
+        val info: TikTokVideoInfo
+    ) : DownloadUiState
     data class PhotoDownloading(
         val completedCount: Int,
         val totalCount: Int,
@@ -64,11 +69,18 @@ sealed interface ShareModalState {
         val completedCount: Int = 0,
         val totalCount: Int = 0
     ) : ShareModalState
+    data class Processing(
+        val percent: Int,
+        val statusMessage: String,
+        val info: TikTokVideoInfo
+    ) : ShareModalState
     data class Success(
         val info: TikTokVideoInfo,
         val uriString: String,
         val filePath: String,
-        val savedUris: List<String> = emptyList()
+        val savedUris: List<String> = emptyList(),
+        val isCompatibilityReencoded: Boolean = false,
+        val encodingNote: String? = null
     ) : ShareModalState
     data class Error(val message: String) : ShareModalState
 }
@@ -191,17 +203,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     }
+                    is DownloadProgressEvent.Processing -> {
+                        val current = _downloadState.value
+                        if ((current is DownloadUiState.Downloading || current is DownloadUiState.Processing) &&
+                            ((current as? DownloadUiState.Downloading)?.info?.originalTiktokUrl == event.url ||
+                             (current as? DownloadUiState.Processing)?.info?.originalTiktokUrl == event.url)) {
+                            _downloadState.value = DownloadUiState.Processing(
+                                percent = event.percent,
+                                statusMessage = event.statusMessage,
+                                info = event.info
+                            )
+                        }
+                        val shareCurrent = _shareModalState.value
+                        if ((shareCurrent is ShareModalState.Downloading || shareCurrent is ShareModalState.Processing) &&
+                            ((shareCurrent as? ShareModalState.Downloading)?.info?.originalTiktokUrl == event.url ||
+                             (shareCurrent as? ShareModalState.Processing)?.info?.originalTiktokUrl == event.url)) {
+                            _shareModalState.value = ShareModalState.Processing(
+                                percent = event.percent,
+                                statusMessage = event.statusMessage,
+                                info = event.info
+                            )
+                        }
+                    }
                     is DownloadProgressEvent.Success -> {
                         val current = _downloadState.value
-                        if (current is DownloadUiState.Downloading && current.info.originalTiktokUrl == event.url) {
+                        if ((current is DownloadUiState.Downloading || current is DownloadUiState.Processing) &&
+                            ((current as? DownloadUiState.Downloading)?.info?.originalTiktokUrl == event.url ||
+                             (current as? DownloadUiState.Processing)?.info?.originalTiktokUrl == event.url)) {
                             _downloadState.value = DownloadUiState.Success(event.outcome)
                         }
                         val shareCurrent = _shareModalState.value
-                        if (shareCurrent is ShareModalState.Downloading && shareCurrent.info.originalTiktokUrl == event.url) {
+                        if ((shareCurrent is ShareModalState.Downloading || shareCurrent is ShareModalState.Processing) &&
+                            ((shareCurrent as? ShareModalState.Downloading)?.info?.originalTiktokUrl == event.url ||
+                             (shareCurrent as? ShareModalState.Processing)?.info?.originalTiktokUrl == event.url)) {
                             _shareModalState.value = ShareModalState.Success(
                                 info = event.outcome.videoInfo,
                                 uriString = event.outcome.uriString,
-                                filePath = event.outcome.filePath
+                                filePath = event.outcome.filePath,
+                                isCompatibilityReencoded = event.outcome.isCompatibilityReencoded,
+                                encodingNote = event.outcome.encodingNote
                             )
                         }
                     }
@@ -222,11 +262,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     is DownloadProgressEvent.Error -> {
                         val current = _downloadState.value
-                        if (current is DownloadUiState.Downloading || current is DownloadUiState.PhotoDownloading) {
+                        if (current is DownloadUiState.Downloading || current is DownloadUiState.Processing || current is DownloadUiState.PhotoDownloading) {
                             _downloadState.value = DownloadUiState.Error(event.message)
                         }
                         val shareCurrent = _shareModalState.value
-                        if (shareCurrent is ShareModalState.Downloading && shareCurrent.info.originalTiktokUrl == event.url) {
+                        if ((shareCurrent is ShareModalState.Downloading || shareCurrent is ShareModalState.Processing) &&
+                            ((shareCurrent as? ShareModalState.Downloading)?.info?.originalTiktokUrl == event.url ||
+                             (shareCurrent as? ShareModalState.Processing)?.info?.originalTiktokUrl == event.url)) {
                             _shareModalState.value = ShareModalState.Error(event.message)
                         }
                     }
@@ -417,14 +459,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun runDirectVideoDownload(info: TikTokVideoInfo) {
         viewModelScope.launch {
-            val result = downloader.downloadVideo(info, _preferHd.value) { percent, downloaded, total ->
-                _downloadState.value = DownloadUiState.Downloading(
-                    percent = percent,
-                    downloadedBytes = downloaded,
-                    totalBytes = total,
-                    info = info
-                )
-            }
+            val result = downloader.downloadVideo(
+                info = info,
+                preferHd = _preferHd.value,
+                onProgress = { percent, downloaded, total ->
+                    _downloadState.value = DownloadUiState.Downloading(
+                        percent = percent,
+                        downloadedBytes = downloaded,
+                        totalBytes = total,
+                        info = info
+                    )
+                },
+                onProcessing = { percent, message ->
+                    _downloadState.value = DownloadUiState.Processing(
+                        percent = percent,
+                        statusMessage = message,
+                        info = info
+                    )
+                }
+            )
 
             result.fold(
                 onSuccess = { outcome ->
@@ -590,15 +643,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             if (!serviceStarted) {
                 viewModelScope.launch {
-                    val downloadResult = downloader.downloadVideo(info, _preferHd.value) { percent, _, _ ->
-                        _shareModalState.value = ShareModalState.Downloading(percent, info)
-                    }
+                    val downloadResult = downloader.downloadVideo(
+                        info = info,
+                        preferHd = _preferHd.value,
+                        onProgress = { percent, _, _ ->
+                            _shareModalState.value = ShareModalState.Downloading(percent, info)
+                        },
+                        onProcessing = { percent, message ->
+                            _shareModalState.value = ShareModalState.Processing(percent, message, info)
+                        }
+                    )
                     downloadResult.fold(
                         onSuccess = { outcome ->
                             _shareModalState.value = ShareModalState.Success(
                                 info = info,
                                 uriString = outcome.uriString,
-                                filePath = outcome.filePath
+                                filePath = outcome.filePath,
+                                isCompatibilityReencoded = outcome.isCompatibilityReencoded,
+                                encodingNote = outcome.encodingNote
                             )
                         },
                         onFailure = { dlErr ->

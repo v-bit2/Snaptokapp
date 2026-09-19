@@ -135,6 +135,90 @@ fun DownloadingProgressCard(
 }
 
 @Composable
+fun ProcessingProgressCard(
+    percent: Int,
+    statusMessage: String,
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = (percent / 100f).coerceIn(0f, 1f),
+        label = "ProcessingProgress"
+    )
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .border(
+                width = 1.dp,
+                color = TealAccent.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(14.dp)
+            ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier.size(52.dp),
+                    color = TealAccent,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    strokeWidth = 4.dp
+                )
+                Text(
+                    text = "$percent%",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TealAccent
+                )
+            }
+
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "Optimizing for Editor Compatibility…",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Stage 2/2: Universal H.264 CFR (30fps)",
+                    fontSize = 11.sp,
+                    color = TealAccent,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = statusMessage,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                color = TealAccent,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+
+            Text(
+                text = "Re-encoding ensures seamless editing in Alight Motion, CapCut & Gallery",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
 fun PhotoDownloadingProgressCard(
     completedCount: Int,
     totalCount: Int,
@@ -257,10 +341,15 @@ fun DownloadSuccessCard(
                         fontWeight = FontWeight.Bold,
                         color = SuccessGreen
                     )
+                    val formatLabel = if (outcome.isCompatibilityReencoded) {
+                        "H.264 CFR • Universal Editor Ready"
+                    } else {
+                        outcome.encodingNote ?: "Ready to watch & edit"
+                    }
                     Text(
-                        text = "Movies/SnapTok • ${MediaSaver.formatBytes(outcome.fileSize)}",
+                        text = "Movies/SnapTok • ${MediaSaver.formatBytes(outcome.fileSize)} • $formatLabel",
                         fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (outcome.isCompatibilityReencoded) TealAccent else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

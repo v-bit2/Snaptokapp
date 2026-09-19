@@ -75,179 +75,198 @@ object MediaSaver {
                 throw IOException(msg)
             }
 
-            // Step 3: Signature & Magic Bytes verification
-            val validation = MediaValidator.validateMediaFile(
-                file = tempFile,
-                expectedVideo = true,
-                expectedContentLength = expectedContentLength
-            )
+            return saveExistingVideoFileToGallery(context, tempFile, title)
+        } finally {
+            if (tempFile.exists()) {
+                tempFile.delete()
+            }
+        }
+    }
 
-            if (validation !is MediaValidator.ValidationResult.Valid) {
-                val reason = (validation as MediaValidator.ValidationResult.Invalid).reason
-                Log.e(TAG, "[DL-ERR] Media validation failed: $reason")
-                throw IOException("Invalid or corrupted video data: $reason")
+    /**
+     * Saves an already downloaded, verified, or re-encoded video File directly to MediaStore / Public Gallery.
+     * Performs physical descriptor sync, IS_PENDING finalization, and MediaScannerConnection registration.
+     */
+    fun saveExistingVideoFileToGallery(
+        context: Context,
+        videoFile: File,
+        title: String
+    ): SaveResult {
+        if (!videoFile.exists() || videoFile.length() == 0L) {
+            throw IOException("Video file does not exist or is empty: ${videoFile.absolutePath}")
+        }
+
+        val totalWritten = videoFile.length()
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val sanitizedTitle = title.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(30).ifBlank { "video" }
+
+        // Signature & Magic Bytes verification
+        val validation = MediaValidator.validateMediaFile(
+            file = videoFile,
+            expectedVideo = true
+        )
+
+        if (validation !is MediaValidator.ValidationResult.Valid) {
+            val reason = (validation as MediaValidator.ValidationResult.Invalid).reason
+            Log.e(TAG, "[DL-ERR] Media validation failed: $reason")
+            throw IOException("Invalid or corrupted video data: $reason")
+        }
+
+        val mediaType = validation.mediaType
+        val extension = mediaType.extension
+        val mimeType = mediaType.mimeType
+        val finalFileName = "SnapTok_${sanitizedTitle}_$timestamp.$extension"
+        Log.d(TAG, "[DL-3] Video signature verified: $mimeType ($extension). Final filename: $finalFileName")
+
+        // Transfer to MediaStore / Public Gallery
+        val resolver = context.contentResolver
+
+        // Branch A: Android 10+ (Q+) Scoped Storage MediaStore
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, finalFileName)
+                put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SnapTok")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+                put(MediaStore.Video.Media.SIZE, totalWritten)
+                val nowSec = System.currentTimeMillis() / 1000
+                put(MediaStore.Video.Media.DATE_ADDED, nowSec)
+                put(MediaStore.Video.Media.DATE_MODIFIED, nowSec)
             }
 
-            val mediaType = validation.mediaType
-            val extension = mediaType.extension
-            val mimeType = mediaType.mimeType
-            val finalFileName = "SnapTok_${sanitizedTitle}_$timestamp.$extension"
-            Log.d(TAG, "[DL-3] Video signature verified: $mimeType ($extension). Final filename: $finalFileName")
-
-            // Step 4: Transfer to MediaStore / Public Gallery
-            val resolver = context.contentResolver
-
-            // Branch A: Android 10+ (Q+) Scoped Storage MediaStore
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.Video.Media.DISPLAY_NAME, finalFileName)
-                    put(MediaStore.Video.Media.MIME_TYPE, mimeType)
-                    put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SnapTok")
-                    put(MediaStore.Video.Media.IS_PENDING, 1)
-                    put(MediaStore.Video.Media.SIZE, totalWritten)
-                    val nowSec = System.currentTimeMillis() / 1000
-                    put(MediaStore.Video.Media.DATE_ADDED, nowSec)
-                    put(MediaStore.Video.Media.DATE_MODIFIED, nowSec)
-                }
-
-                val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
-                if (uri != null) {
-                    try {
-                        resolver.openFileDescriptor(uri, "w")?.use { pfd ->
-                            FileOutputStream(pfd.fileDescriptor).use { fos ->
-                                tempFile.inputStream().use { inStream ->
-                                    inStream.copyTo(fos)
-                                }
-                                fos.flush()
-                                pfd.fileDescriptor.sync() // Ensure physical disk commit
+            val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
+            if (uri != null) {
+                try {
+                    resolver.openFileDescriptor(uri, "w")?.use { pfd ->
+                        FileOutputStream(pfd.fileDescriptor).use { fos ->
+                            videoFile.inputStream().use { inStream ->
+                                inStream.copyTo(fos)
                             }
+                            fos.flush()
+                            pfd.fileDescriptor.sync() // Ensure physical disk commit
                         }
+                    }
 
-                        // Finalize MediaStore entry: clear IS_PENDING and update final size
-                        contentValues.clear()
-                        contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
-                        contentValues.put(MediaStore.Video.Media.SIZE, totalWritten)
-                        contentValues.put(MediaStore.Video.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000)
-                        resolver.update(uri, contentValues, null, null)
+                    // Finalize MediaStore entry: clear IS_PENDING and update final size
+                    contentValues.clear()
+                    contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+                    contentValues.put(MediaStore.Video.Media.SIZE, totalWritten)
+                    contentValues.put(MediaStore.Video.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000)
+                    resolver.update(uri, contentValues, null, null)
 
-                        // Query the actual DATA path if assigned by the OS
-                        var resolvedPath = "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)}/SnapTok/$finalFileName"
-                        try {
-                            resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)?.use { cursor ->
-                                if (cursor.moveToFirst()) {
-                                    val dataIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
-                                    if (dataIdx >= 0) {
-                                        val realPath = cursor.getString(dataIdx)
-                                        if (!realPath.isNullOrBlank()) {
-                                            resolvedPath = realPath
-                                        }
+                    // Query the actual DATA path if assigned by the OS
+                    var resolvedPath = "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)}/SnapTok/$finalFileName"
+                    try {
+                        resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val dataIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                                if (dataIdx >= 0) {
+                                    val realPath = cursor.getString(dataIdx)
+                                    if (!realPath.isNullOrBlank()) {
+                                        resolvedPath = realPath
                                     }
                                 }
                             }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Could not query MediaStore DATA column", e)
                         }
-
-                        // Notify MediaScanner for instant third-party app visibility (Alight Motion, Gallery, etc.)
-                        MediaScannerConnection.scanFile(context, arrayOf(resolvedPath), arrayOf(mimeType), null)
-                        Log.d(TAG, "[DL-4] Video saved to MediaStore: uri=$uri, path=$resolvedPath, size=$totalWritten")
-
-                        return SaveResult(
-                            uri = uri,
-                            filePath = resolvedPath,
-                            sizeBytes = totalWritten,
-                            mimeType = mimeType
-                        )
-                    } catch (writeErr: Exception) {
-                        Log.e(TAG, "[DL-ERR] Error writing to MediaStore URI: $uri", writeErr)
-                        try {
-                            resolver.delete(uri, null, null) // remove partial row
-                        } catch (ignored: Exception) {}
-                        throw writeErr
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not query MediaStore DATA column", e)
                     }
+
+                    // Notify MediaScanner for instant third-party app visibility (Alight Motion, Gallery, etc.)
+                    MediaScannerConnection.scanFile(context, arrayOf(resolvedPath), arrayOf(mimeType), null)
+                    Log.d(TAG, "[DL-4] Video saved to MediaStore: uri=$uri, path=$resolvedPath, size=$totalWritten")
+
+                    return SaveResult(
+                        uri = uri,
+                        filePath = resolvedPath,
+                        sizeBytes = totalWritten,
+                        mimeType = mimeType
+                    )
+                } catch (writeErr: Exception) {
+                    Log.e(TAG, "[DL-ERR] Error writing to MediaStore URI: $uri", writeErr)
+                    try {
+                        resolver.delete(uri, null, null) // remove partial row
+                    } catch (ignored: Exception) {}
+                    throw writeErr
                 }
             }
+        }
 
-            // Branch B: Direct public Movies directory (Android 9 or below / fallback)
-            val moviesDir = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
-                "SnapTok"
-            )
-            if (!moviesDir.exists()) {
-                moviesDir.mkdirs()
-            }
+        // Branch B: Direct public Movies directory (Android 9 or below / fallback)
+        val moviesDir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+            "SnapTok"
+        )
+        if (!moviesDir.exists()) {
+            moviesDir.mkdirs()
+        }
 
-            if (moviesDir.exists() && moviesDir.canWrite()) {
-                val targetFile = File(moviesDir, finalFileName)
-                FileOutputStream(targetFile).use { fos ->
-                    tempFile.inputStream().use { inStream ->
-                        inStream.copyTo(fos)
-                    }
-                    fos.flush()
-                    fos.fd.sync()
-                }
-
-                val contentValues = ContentValues().apply {
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                        put(MediaStore.Video.Media.DATA, targetFile.absolutePath)
-                    }
-                    put(MediaStore.Video.Media.DISPLAY_NAME, finalFileName)
-                    put(MediaStore.Video.Media.MIME_TYPE, mimeType)
-                    put(MediaStore.Video.Media.SIZE, totalWritten)
-                }
-
-                val uri = try {
-                    resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
-                        ?: Uri.fromFile(targetFile)
-                } catch (e: Exception) {
-                    Uri.fromFile(targetFile)
-                }
-
-                MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), arrayOf(mimeType), null)
-                Log.d(TAG, "[DL-4] Video saved to public Movies dir: path=${targetFile.absolutePath}, uri=$uri")
-
-                return SaveResult(
-                    uri = uri,
-                    filePath = targetFile.absolutePath,
-                    sizeBytes = totalWritten,
-                    mimeType = mimeType
-                )
-            }
-
-            // Branch C: Safe app-specific external files dir fallback with FileProvider
-            val fallbackDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir
-            if (!fallbackDir.exists()) {
-                fallbackDir.mkdirs()
-            }
-            val safeFallbackFile = File(fallbackDir, finalFileName)
-            FileOutputStream(safeFallbackFile).use { fos ->
-                tempFile.inputStream().use { inStream ->
+        if (moviesDir.exists() && moviesDir.canWrite()) {
+            val targetFile = File(moviesDir, finalFileName)
+            FileOutputStream(targetFile).use { fos ->
+                videoFile.inputStream().use { inStream ->
                     inStream.copyTo(fos)
                 }
                 fos.flush()
                 fos.fd.sync()
             }
 
-            val safeUri = try {
-                FileProvider.getUriForFile(context, "${context.packageName}.provider", safeFallbackFile)
-            } catch (e: Exception) {
-                Uri.fromFile(safeFallbackFile)
+            val contentValues = ContentValues().apply {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    put(MediaStore.Video.Media.DATA, targetFile.absolutePath)
+                }
+                put(MediaStore.Video.Media.DISPLAY_NAME, finalFileName)
+                put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                put(MediaStore.Video.Media.SIZE, totalWritten)
             }
 
-            MediaScannerConnection.scanFile(context, arrayOf(safeFallbackFile.absolutePath), arrayOf(mimeType), null)
-            Log.d(TAG, "[DL-4] Video saved to app-specific fallback: path=${safeFallbackFile.absolutePath}, uri=$safeUri")
+            val uri = try {
+                resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
+                    ?: Uri.fromFile(targetFile)
+            } catch (e: Exception) {
+                Uri.fromFile(targetFile)
+            }
+
+            MediaScannerConnection.scanFile(context, arrayOf(targetFile.absolutePath), arrayOf(mimeType), null)
+            Log.d(TAG, "[DL-4] Video saved to public Movies dir: path=${targetFile.absolutePath}, uri=$uri")
 
             return SaveResult(
-                uri = safeUri,
-                filePath = safeFallbackFile.absolutePath,
+                uri = uri,
+                filePath = targetFile.absolutePath,
                 sizeBytes = totalWritten,
                 mimeType = mimeType
             )
-        } finally {
-            if (tempFile.exists()) {
-                tempFile.delete()
-            }
         }
+
+        // Branch C: Safe app-specific external files dir fallback with FileProvider
+        val fallbackDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir
+        if (!fallbackDir.exists()) {
+            fallbackDir.mkdirs()
+        }
+        val safeFallbackFile = File(fallbackDir, finalFileName)
+        FileOutputStream(safeFallbackFile).use { fos ->
+            videoFile.inputStream().use { inStream ->
+                inStream.copyTo(fos)
+            }
+            fos.flush()
+            fos.fd.sync()
+        }
+
+        val safeUri = try {
+            FileProvider.getUriForFile(context, "${context.packageName}.provider", safeFallbackFile)
+        } catch (e: Exception) {
+            Uri.fromFile(safeFallbackFile)
+        }
+
+        MediaScannerConnection.scanFile(context, arrayOf(safeFallbackFile.absolutePath), arrayOf(mimeType), null)
+        Log.d(TAG, "[DL-4] Video saved to app-specific fallback: path=${safeFallbackFile.absolutePath}, uri=$safeUri")
+
+        return SaveResult(
+            uri = safeUri,
+            filePath = safeFallbackFile.absolutePath,
+            sizeBytes = totalWritten,
+            mimeType = mimeType
+        )
     }
 
     /**

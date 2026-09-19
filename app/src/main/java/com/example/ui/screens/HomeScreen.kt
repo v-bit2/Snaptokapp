@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.components.DownloadErrorCard
 import com.example.ui.components.DownloadSuccessCard
 import com.example.ui.components.DownloadingProgressCard
+import com.example.ui.components.ProcessingProgressCard
 import com.example.ui.components.PhotoDownloadingProgressCard
 import com.example.ui.components.PhotoGridSelectorCard
 import com.example.ui.components.PhotoSuccessCard
@@ -397,6 +398,14 @@ fun HomeScreen(
                     percent = downloadState.percent,
                     downloadedBytes = downloadState.downloadedBytes,
                     totalBytes = downloadState.totalBytes,
+                    title = downloadState.info.title
+                )
+            }
+
+            is DownloadUiState.Processing -> {
+                ProcessingProgressCard(
+                    percent = downloadState.percent,
+                    statusMessage = downloadState.statusMessage,
                     title = downloadState.info.title
                 )
             }

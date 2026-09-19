@@ -10,8 +10,11 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import com.example.data.storage.MediaValidator
 
 class VideoDownloader(
     private val context: Context,
@@ -33,7 +36,9 @@ class VideoDownloader(
         val uriString: String,
         val filePath: String,
         val fileSize: Long,
-        val videoInfo: TikTokVideoInfo
+        val videoInfo: TikTokVideoInfo,
+        val isCompatibilityReencoded: Boolean = false,
+        val encodingNote: String? = null
     )
 
     data class PhotoDownloadOutcome(
@@ -59,11 +64,12 @@ class VideoDownloader(
     suspend fun downloadVideo(
         info: TikTokVideoInfo,
         preferHd: Boolean = true,
-        onProgress: (percent: Int, downloadedBytes: Long, totalBytes: Long) -> Unit
+        onProgress: (percent: Int, downloadedBytes: Long, totalBytes: Long) -> Unit,
+        onProcessing: (percent: Int, statusMessage: String) -> Unit = { _, _ -> }
     ): Result<DownloadOutcome> = withContext(Dispatchers.IO) {
         // Attempt download, with 1 retry on refreshed URL if CDN link expired
         var activeInfo = info
-        var outcome = attemptDownloadVideo(activeInfo, preferHd, onProgress)
+        var outcome = attemptDownloadVideo(activeInfo, preferHd, onProgress, onProcessing)
 
         if (outcome.isFailure) {
             val err = outcome.exceptionOrNull()
@@ -77,7 +83,7 @@ class VideoDownloader(
                     if (freshInfo != null && (freshInfo.playUrl != activeInfo.playUrl || freshInfo.hdPlayUrl != activeInfo.hdPlayUrl)) {
                         Log.i(TAG, "[DL-RETRY] Obtained fresh CDN link. Retrying download...")
                         activeInfo = freshInfo
-                        outcome = attemptDownloadVideo(activeInfo, preferHd, onProgress)
+                        outcome = attemptDownloadVideo(activeInfo, preferHd, onProgress, onProcessing)
                     }
                 }
             }
@@ -89,7 +95,8 @@ class VideoDownloader(
     private suspend fun attemptDownloadVideo(
         info: TikTokVideoInfo,
         preferHd: Boolean,
-        onProgress: (percent: Int, downloadedBytes: Long, totalBytes: Long) -> Unit
+        onProgress: (percent: Int, downloadedBytes: Long, totalBytes: Long) -> Unit,
+        onProcessing: (percent: Int, statusMessage: String) -> Unit
     ): Result<DownloadOutcome> {
         val downloadUrl = if (preferHd && !info.hdPlayUrl.isNullOrBlank()) {
             info.hdPlayUrl
@@ -142,45 +149,132 @@ class VideoDownloader(
                 val declaredLength = if (serverLength > 0) serverLength else info.estimatedSizeBytes
                 var lastReportedPercent = -1
 
-                // Write and validate via MediaSaver pipeline
-                val saveResult = MediaSaver.saveVideoToGallery(
-                    context = context,
-                    inputStream = body.byteStream(),
-                    title = info.title,
-                    expectedContentLength = serverLength
-                ) { bytesWritten ->
-                    val percent = if (declaredLength > 0) {
-                        ((bytesWritten * 100) / declaredLength).toInt().coerceIn(0, 100)
-                    } else {
-                        50
+                val rawTempFile = File.createTempFile("snaptok_raw_", ".tmp", context.cacheDir)
+                var totalWritten = 0L
+
+                try {
+                    // Step 1: Stream bytes from network to raw temp file
+                    FileOutputStream(rawTempFile).use { fos ->
+                        val buffer = ByteArray(32 * 1024)
+                        var read: Int
+                        val inStream = body.byteStream()
+                        while (inStream.read(buffer).also { read = it } != -1) {
+                            fos.write(buffer, 0, read)
+                            totalWritten += read
+                            val percent = if (declaredLength > 0) {
+                                ((totalWritten * 100) / declaredLength).toInt().coerceIn(0, 100)
+                            } else {
+                                50
+                            }
+                            if (percent != lastReportedPercent) {
+                                lastReportedPercent = percent
+                                onProgress(percent, totalWritten, declaredLength)
+                            }
+                        }
+                        fos.flush()
+                        fos.fd.sync() // Ensure OS commits data to disk
                     }
-                    if (percent != lastReportedPercent) {
-                        lastReportedPercent = percent
-                        onProgress(percent, bytesWritten, declaredLength)
+
+                    // Step 2: Content-Length verification
+                    if (serverLength > 0 && totalWritten < serverLength) {
+                        val msg = "Download incomplete: received $totalWritten bytes but server expected $serverLength bytes."
+                        Log.e(TAG, "[DL-ERR] $msg")
+                        throw IOException(msg)
                     }
-                }
 
-                // Final progress notification
-                onProgress(100, saveResult.sizeBytes, saveResult.sizeBytes)
+                    // Step 3: Signature & Magic Bytes verification of downloaded stream
+                    val validation = MediaValidator.validateMediaFile(
+                        file = rawTempFile,
+                        expectedVideo = true,
+                        expectedContentLength = serverLength
+                    )
+                    if (validation !is MediaValidator.ValidationResult.Valid) {
+                        val reason = (validation as MediaValidator.ValidationResult.Invalid).reason
+                        Log.e(TAG, "[DL-ERR] Downloaded file failed validation: $reason")
+                        throw IOException("Corrupted download payload: $reason")
+                    }
 
-                // Record in Room Database
-                repository.recordDownload(
-                    info = info,
-                    uriString = saveResult.uri.toString(),
-                    filePath = saveResult.filePath,
-                    fileSizeBytes = saveResult.sizeBytes
-                )
+                    onProgress(100, totalWritten, totalWritten)
+                    Log.d(TAG, "[DL-2] Video download complete & verified ($totalWritten bytes). Starting in-app re-encoding check...")
 
-                Log.i(TAG, "[DL-DONE] Video successfully saved & recorded: ${saveResult.filePath} (${saveResult.sizeBytes} bytes)")
+                    // Step 4: In-app video re-encoding / compatibility processing
+                    onProcessing(0, "Optimizing for universal compatibility…")
+                    val encoder = VideoEncoderService(context)
+                    val encodeResult = encoder.reencodeToCompatibleMp4(
+                        inputFile = rawTempFile,
+                        onProgress = { pct ->
+                            onProcessing(pct, if (pct < 90) "Transcoding to H.264 CFR ($pct%)…" else "Optimizing container ($pct%)…")
+                        },
+                        skipIfAlreadyCompatible = true
+                    )
 
-                return Result.success(
-                    DownloadOutcome(
+                    val (fileToSave, wasReencoded, encodingNote) = when (encodeResult) {
+                        is VideoEncoderService.EncodeResult.Success -> {
+                            if (encodeResult.wasSkippedAlreadyCompatible) {
+                                Triple(rawTempFile, false, "Already in compatible H.264 CFR format")
+                            } else {
+                                // Re-encoded file is ready!
+                                // Delete pre-encode raw temp file now to prevent duplicate disk usage
+                                try {
+                                    if (rawTempFile.exists() && rawTempFile.path != encodeResult.file.path) {
+                                        rawTempFile.delete()
+                                    }
+                                } catch (_: Exception) {}
+                                Triple(encodeResult.file, true, "Re-encoded to universal H.264/AAC CFR")
+                            }
+                        }
+                        is VideoEncoderService.EncodeResult.Fallback -> {
+                            Log.w(TAG, "[ENCODE-FALLBACK] Re-encode fallback: ${encodeResult.reason}. Using original file.")
+                            Triple(rawTempFile, false, "Saved, but may not be compatible with all editing apps (${encodeResult.reason})")
+                        }
+                    }
+
+                    onProcessing(100, "Saving to gallery…")
+
+                    // Step 5: Transfer to MediaStore / Public Gallery
+                    val saveResult = try {
+                        MediaSaver.saveExistingVideoFileToGallery(
+                            context = context,
+                            videoFile = fileToSave,
+                            title = info.title
+                        )
+                    } finally {
+                        // Clean up fileToSave temp file
+                        try {
+                            if (fileToSave.exists()) {
+                                fileToSave.delete()
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    // Record in Room Database
+                    repository.recordDownload(
+                        info = info,
                         uriString = saveResult.uri.toString(),
                         filePath = saveResult.filePath,
-                        fileSize = saveResult.sizeBytes,
-                        videoInfo = info
+                        fileSizeBytes = saveResult.sizeBytes
                     )
-                )
+
+                    Log.i(TAG, "[DL-DONE] Video successfully saved & recorded: ${saveResult.filePath} (reencoded=$wasReencoded)")
+
+                    return Result.success(
+                        DownloadOutcome(
+                            uriString = saveResult.uri.toString(),
+                            filePath = saveResult.filePath,
+                            fileSize = saveResult.sizeBytes,
+                            videoInfo = info,
+                            isCompatibilityReencoded = wasReencoded,
+                            encodingNote = encodingNote
+                        )
+                    )
+                } finally {
+                    // Ensure rawTempFile is cleaned up if an exception occurred before handoff
+                    try {
+                        if (rawTempFile.exists()) {
+                            rawTempFile.delete()
+                        }
+                    } catch (_: Exception) {}
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "[DL-FAIL] Video download failed", e)

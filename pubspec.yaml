@@ -1,0 +1,36 @@
+name: snaptok
+description: "SnapTok - Fast TikTok Video Downloader with Universal Editor Compatibility (H.264 CFR Re-encoding)."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ============================================================================
+  # VIDEO ENCODING & COMPATIBILITY ENGINE
+  # ============================================================================
+  # Notice on GPL Licensing:
+  # `ffmpeg_kit_flutter_min_gpl` is used to provide libx264 (H.264) transcoding
+  # and CFR (Constant Frame Rate) normalization for third-party editing apps
+  # (Alight Motion, CapCut, InShot). The libx264 library is licensed under GPL v3.
+  # If distributing publicly, ensure legal review of GPL requirements or switch
+  # to the native Android MediaCodec / iOS AVFoundation platform channel implementation.
+  # ============================================================================
+  ffmpeg_kit_flutter_min_gpl: ^6.0.3
+
+  path: ^1.9.0
+  path_provider: ^2.1.2
+  http: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
