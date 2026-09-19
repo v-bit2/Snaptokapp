@@ -256,11 +256,7 @@ class VideoEncoderService(private val context: Context) {
                 throw IllegalStateException("Transcoding returned unsuccessful status.")
             }
 
-            // Step 3: Faststart MP4 optimization (relocate moov atom to beginning if needed)
-            onProgress(92)
-            relocateMoovAtomFaststart(outputFile)
-
-            // Step 4: Post-encode verification
+            // Step 3: Post-encode validation
             onProgress(95)
             val validation = MediaValidator.validateMediaFile(outputFile, expectedVideo = true)
             if (validation !is MediaValidator.ValidationResult.Valid) {
@@ -271,6 +267,18 @@ class VideoEncoderService(private val context: Context) {
             val postProbe = probeVideo(outputFile)
             if (postProbe.durationMs <= 0L || postProbe.width <= 0 || postProbe.height <= 0) {
                 throw IllegalStateException("Output video has invalid duration (${postProbe.durationMs}ms) or dimensions.")
+            }
+
+            // Verify codec is strictly H.264/AVC
+            val postVideoMime = postProbe.videoMimeType ?: ""
+            if (postVideoMime != MediaFormat.MIMETYPE_VIDEO_AVC && !postVideoMime.contains("avc") && !postVideoMime.contains("h264")) {
+                throw IllegalStateException("Output video codec is '$postVideoMime', expected H.264/AVC. HEVC/VP9 output rejected.")
+            }
+
+            // Verify audio codec is AAC if audio is present
+            val postAudioMime = postProbe.audioMimeType
+            if (postAudioMime != null && postAudioMime != MediaFormat.MIMETYPE_AUDIO_AAC && !postAudioMime.contains("mp4a")) {
+                throw IllegalStateException("Output audio codec is '$postAudioMime', expected AAC.")
             }
 
             onProgress(100)

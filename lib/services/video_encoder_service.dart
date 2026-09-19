@@ -43,18 +43,20 @@ class VideoEncoderService {
   VideoEncoderService._internal();
 
   /// Re-encodes [input] video to a universally compatible MP4 format:
-  /// - Video Codec: H.264 (libx264)
-  /// - Constant Frame Rate (CFR): 30 fps (-r 30 -vsync cfr)
-  /// - Audio Codec: AAC (128 kbps stereo)
+  /// - Video Codec: H.264 (libx264, pixel format yuv420p)
+  /// - Constant Frame Rate (CFR): 30 fps (-r 30 -fps_mode cfr / -vsync cfr)
+  /// - Audio Codec: AAC Low Complexity (-c:a aac -profile:a aac_low)
+  /// - Audio Sample Rate: 44.1 kHz (-ar 44100) matching container timescale
+  /// - Audio Channels: 2 (-ac 2 -channel_layout stereo)
   /// - Container: MP4 with faststart (+faststart for instant moov atom positioning)
   /// - Preset: fast (balanced mobile CPU performance and quality)
   ///
   /// Features:
   /// 1. Pre-inspection: Skips re-encoding if the video is already H.264 + CFR + AAC.
   /// 2. Asynchronous execution with [onProgress] reporting (0.0 to 1.0).
-  /// 3. Post-encode verification (file size, MP4 ftyp header, stream sanity via FFprobe).
-  /// 4. Automatic fallback: Returns the original [input] file if encoding or verification fails,
-  ///    logging the failure and setting [warningMessage] rather than failing the download.
+  /// 3. Mandatory 5-point post-encode verification (H.264, AAC, CFR equality, duration sync, channels).
+  /// 4. Automatic fallback: Returns original [input] file if encoding or verification fails,
+  ///    logging the specific failure and warning rather than shipping a corrupted file.
   /// 5. Cleanup: Deletes the original pre-encode temp file when re-encoding succeeds.
   Future<File> reencodeToCompatibleMp4(
     File input, {
@@ -107,7 +109,6 @@ class VideoEncoderService {
             final type = stream.getType()?.toLowerCase() ?? '';
             if (type == 'video' && (codec == 'h264' || codec == 'avc1')) {
               hasH264 = true;
-              // Check if r_frame_rate matches avg_frame_rate (indicating CFR)
               final rFrameRate = stream.getRealFrameRate();
               final avgFrameRate = stream.getAverageFrameRate();
               if (rFrameRate != null && avgFrameRate != null && rFrameRate != avgFrameRate) {
@@ -153,33 +154,48 @@ class VideoEncoderService {
       });
     }
 
-    // Step 4: Build FFmpeg command
-    // -y: overwrite output
-    // -c:v libx264: H.264 video codec (GPL via x264)
-    // -preset fast: balanced speed vs compression
-    // -crf 23: visually lossless standard CRF
-    // -r 30 -vsync cfr: enforce constant 30 fps
-    // -c:a aac -b:a 128k: standard universal AAC audio
-    // -movflags +faststart: relocate moov atom to start of file for streaming/editor support
-    final command =
-        '-y -i "${input.path}" '
-        '-c:v libx264 -preset $preset -crf $crf '
-        '-r $targetFps -vsync cfr '
-        '-c:a aac -b:a 128k '
-        '-movflags +faststart '
-        '"$outputFilePath"';
+    // Step 4: Execute FFmpeg command
+    //
+    // FIX FOR BUG 1: Explicitly pass `-c:v libx264 -pix_fmt yuv420p` (forces standard H.264/AVC instead of HEVC or hardware default).
+    // FIX FOR BUG 2: Set `-ar 44100` and do not pass conflicting timescale flags so audio time_base matches sample rate (1/44100).
+    // FIX FOR BUG 3: Set `-c:a aac -profile:a aac_low -ac 2 -channel_layout stereo` to ensure valid AAC channel configuration (PCE/ADTS).
+    // FIX FOR BUG 4: Use `-r $targetFps` AND `-fps_mode cfr` (with `-vsync cfr` fallback) to enforce true constant frame rate (r_frame_rate == avg_frame_rate).
+    // Also include `-movflags +faststart` for quick streaming & third-party editor compatibility.
+
+    String buildCommand(String cfrFlag) {
+      return '-y -i "${input.path}" '
+          '-c:v libx264 -preset $preset -crf $crf '
+          '-r $targetFps $cfrFlag '
+          '-pix_fmt yuv420p '
+          '-c:a aac -profile:a aac_low -ar 44100 -ac 2 -channel_layout stereo -b:a 128k '
+          '-movflags +faststart '
+          '"$outputFilePath"';
+    }
 
     bool encodeSucceeded = false;
     String? failureReason;
+    _VerificationOutcome? lastVerification;
 
     try {
-      final session = await FFmpegKit.execute(command);
-      final returnCode = await session.getReturnCode();
+      // Primary attempt using -fps_mode cfr
+      String primaryCommand = buildCommand('-fps_mode cfr');
+      var session = await FFmpegKit.execute(primaryCommand);
+      var returnCode = await session.getReturnCode();
+
+      // If -fps_mode cfr is unrecognized in older FFmpeg bundles, retry with -vsync cfr
+      if (!ReturnCode.isSuccess(returnCode)) {
+        final failLog = await session.getFailStackTrace() ?? '';
+        if (failLog.contains('fps_mode') || failLog.contains('Unrecognized option')) {
+          final fallbackCommand = buildCommand('-vsync cfr');
+          session = await FFmpegKit.execute(fallbackCommand);
+          returnCode = await session.getReturnCode();
+        }
+      }
 
       if (ReturnCode.isSuccess(returnCode)) {
-        // Step 5: Post-encode verification
-        final verification = await _verifyOutputFile(outputFile);
-        if (verification.isValid) {
+        // Step 5: Mandatory Post-Encode Validation
+        lastVerification = await _verifyOutputFile(outputFile);
+        if (lastVerification.isValid) {
           encodeSucceeded = true;
           onProgress?.call(1.0);
 
@@ -194,14 +210,48 @@ class VideoEncoderService {
             file: outputFile,
             wasReencoded: true,
             wasSkippedAlreadyCompatible: false,
-            durationSeconds: verification.durationSeconds,
+            durationSeconds: lastVerification.durationSeconds,
           );
         } else {
-          failureReason = 'Output verification failed: ${verification.reason}';
+          failureReason = 'Mandatory post-encode verification failed: ${lastVerification.reason}';
+          // Clean up bad output file immediately
+          if (await outputFile.exists()) {
+            await outputFile.delete();
+          }
+
+          // If frame rate or audio parameters failed, attempt a one-time retry with -vsync cfr
+          final retryCommand = buildCommand('-vsync cfr');
+          session = await FFmpegKit.execute(retryCommand);
+          returnCode = await session.getReturnCode();
+          if (ReturnCode.isSuccess(returnCode)) {
+            final retryVerification = await _verifyOutputFile(outputFile);
+            if (retryVerification.isValid) {
+              encodeSucceeded = true;
+              onProgress?.call(1.0);
+
+              try {
+                if (await input.exists() && input.path != outputFile.path) {
+                  await input.delete();
+                }
+              } catch (_) {}
+
+              return VideoEncodeResult(
+                file: outputFile,
+                wasReencoded: true,
+                wasSkippedAlreadyCompatible: false,
+                durationSeconds: retryVerification.durationSeconds,
+              );
+            } else {
+              failureReason = 'Retry post-encode verification failed: ${retryVerification.reason}';
+              if (await outputFile.exists()) {
+                await outputFile.delete();
+              }
+            }
+          }
         }
       } else {
         final failLog = await session.getFailStackTrace();
-        failureReason = 'FFmpeg returned exit code $returnCode. Log: $failLog';
+        failureReason = 'FFmpeg returned non-zero exit code $returnCode. Details: $failLog';
       }
     } catch (e) {
       failureReason = 'Exception during FFmpeg execution: $e';
@@ -209,10 +259,10 @@ class VideoEncoderService {
       FFmpegKitConfig.enableStatisticsCallback(null);
     }
 
-    // Step 6: Graceful Fallback
-    // If re-encoding fails, keep the original downloaded file and return it with a warning
+    // Step 6: Safe Fallback
+    // If re-encoding or mandatory verification failed, DO NOT ship a broken file.
+    // Clean up partial output and safely return the original file with a clear warning note.
     if (!encodeSucceeded) {
-      // Clean up corrupt partial output file if generated
       try {
         if (await outputFile.exists()) {
           await outputFile.delete();
@@ -223,7 +273,7 @@ class VideoEncoderService {
         file: input,
         wasReencoded: false,
         wasSkippedAlreadyCompatible: false,
-        warningMessage: 'Saved, but may not be compatible with all editing apps. ($failureReason)',
+        warningMessage: 'Saved, but compatibility optimization failed: $failureReason',
         durationSeconds: totalDurationSeconds,
       );
     }
@@ -235,11 +285,15 @@ class VideoEncoderService {
     );
   }
 
-  /// Verifies that [file] exists, is non-empty, possesses an MP4 ftyp header,
-  /// and probes as a valid video stream with non-zero duration.
+  /// Mandatory Post-Encode Validation:
+  /// 1. Video codec_name is exactly "h264" (or "avc1"). Rejects "hevc", "vp9", etc. (BUG 1)
+  /// 2. Audio codec_name is exactly "aac" (or "mp4a").
+  /// 3. Video and audio stream durations match within ±0.5 seconds (BUG 2: timebase/sample_rate desync).
+  /// 4. r_frame_rate equals avg_frame_rate exactly (BUG 4: true CFR confirmed).
+  /// 5. Audio channel count is 2 (stereo) with valid channel configuration (BUG 3).
   Future<_VerificationOutcome> _verifyOutputFile(File file) async {
     if (!await file.exists()) {
-      return _VerificationOutcome(false, 'Output file was not created');
+      return const _VerificationOutcome(false, 'Output file was not created');
     }
 
     final length = await file.length();
@@ -265,40 +319,121 @@ class VideoEncoderService {
       }
 
       if (!hasFtyp) {
-        return _VerificationOutcome(false, 'Missing MP4 ftyp signature box in header');
+        return const _VerificationOutcome(false, 'Missing MP4 ftyp signature box in header');
       }
     } catch (e) {
       return _VerificationOutcome(false, 'Failed reading header: $e');
     }
 
-    // FFprobe verification for stream and duration integrity
+    // FFprobe mandatory post-encode validation
     try {
       final probe = await FFprobeKit.getMediaInformation(file.path);
       final info = probe.getMediaInformation();
       if (info == null) {
-        return _VerificationOutcome(false, 'FFprobe could not parse media info');
+        return const _VerificationOutcome(false, 'FFprobe could not parse media info');
       }
 
-      final duration = double.tryParse(info.getDuration() ?? '0') ?? 0.0;
-      if (duration <= 0.0) {
-        return _VerificationOutcome(false, 'Output reports zero or negative duration ($duration)');
+      final fileDurationStr = info.getDuration();
+      final fileDuration = double.tryParse(fileDurationStr ?? '0') ?? 0.0;
+      if (fileDuration <= 0.0) {
+        return _VerificationOutcome(false, 'Output reports invalid file duration: $fileDuration s');
       }
 
-      bool hasVideo = false;
-      for (final s in info.getStreams()) {
-        if (s.getType()?.toLowerCase() == 'video') {
-          hasVideo = true;
-          break;
+      final streams = info.getStreams();
+      StreamInformation? videoStream;
+      StreamInformation? audioStream;
+
+      for (final s in streams) {
+        final type = s.getType()?.toLowerCase();
+        if (type == 'video' && videoStream == null) {
+          videoStream = s;
+        } else if (type == 'audio' && audioStream == null) {
+          audioStream = s;
         }
       }
 
-      if (!hasVideo) {
-        return _VerificationOutcome(false, 'Output does not contain a video stream');
+      // Check 1: Video stream exists and codec_name is exactly "h264" (or "avc1")
+      if (videoStream == null) {
+        return const _VerificationOutcome(false, 'Output does not contain a video stream');
+      }
+      final videoCodec = videoStream.getCodec()?.toLowerCase() ?? '';
+      if (videoCodec != 'h264' && videoCodec != 'avc1') {
+        return _VerificationOutcome(
+          false,
+          'BUG 1 FAILED: Video codec is "$videoCodec", expected exactly "h264" (AVC). Non-H.264 codecs like HEVC/VP9 are rejected.',
+        );
       }
 
-      return _VerificationOutcome(true, 'OK', durationSeconds: duration);
+      // Check 4: r_frame_rate equals avg_frame_rate exactly (true CFR confirmed)
+      final rFrameRate = videoStream.getRealFrameRate();
+      final avgFrameRate = videoStream.getAverageFrameRate();
+      if (rFrameRate == null || avgFrameRate == null) {
+        return const _VerificationOutcome(false, 'BUG 4 FAILED: Could not determine video frame rates');
+      }
+      if (rFrameRate != avgFrameRate) {
+        return _VerificationOutcome(
+          false,
+          'BUG 4 FAILED: Frame rate is not constant (CFR). r_frame_rate ($rFrameRate) != avg_frame_rate ($avgFrameRate).',
+        );
+      }
+
+      // If video has an audio track, check audio integrity
+      if (audioStream != null) {
+        // Check 2: Audio codec_name is exactly "aac" (or "mp4a")
+        final audioCodec = audioStream.getCodec()?.toLowerCase() ?? '';
+        if (audioCodec != 'aac' && audioCodec != 'mp4a') {
+          return _VerificationOutcome(
+            false,
+            'BUG 2/3 FAILED: Audio codec is "$audioCodec", expected exactly "aac".',
+          );
+        }
+
+        // Check 3: Video and audio stream durations match within ±0.5 seconds
+        final videoDurationStr = videoStream.getDuration() ?? fileDurationStr;
+        final audioDurationStr = audioStream.getDuration() ?? fileDurationStr;
+        final videoDuration = double.tryParse(videoDurationStr ?? '0') ?? fileDuration;
+        final audioDuration = double.tryParse(audioDurationStr ?? '0') ?? fileDuration;
+
+        final durationDiff = (videoDuration - audioDuration).abs();
+        if (durationDiff > 0.5) {
+          return _VerificationOutcome(
+            false,
+            'BUG 2 FAILED: Audio/Video duration desync. Video duration: ${videoDuration.toStringAsFixed(2)}s, '
+            'Audio duration: ${audioDuration.toStringAsFixed(2)}s (diff: ${durationDiff.toStringAsFixed(2)}s > 0.5s). '
+            'Indicates audio timescale / sample rate mismatch.',
+          );
+        }
+
+        // Check 5: Audio channel count is 2 (standard stereo)
+        final channels = audioStream.getChannels();
+        if (channels != null && channels != 2) {
+          return _VerificationOutcome(
+            false,
+            'BUG 3 FAILED: Audio channel count is $channels, expected 2 (stereo).',
+          );
+        }
+
+        // Check audio timebase vs sample rate if available
+        final sampleRate = audioStream.getSampleRate();
+        final timeBase = audioStream.getTimeBase();
+        if (sampleRate != null && timeBase != null) {
+          final tbParts = timeBase.split('/');
+          if (tbParts.length == 2) {
+            final denom = double.tryParse(tbParts[1]) ?? 0.0;
+            final sRateNum = double.tryParse(sampleRate) ?? 0.0;
+            if (sRateNum > 0 && denom > 0 && (denom / sRateNum < 0.8 || denom / sRateNum > 1.2) && denom != 90000) {
+              return _VerificationOutcome(
+                false,
+                'BUG 2 FAILED: Audio timebase ($timeBase) mismatched with sample rate ($sampleRate Hz).',
+              );
+            }
+          }
+        }
+      }
+
+      return _VerificationOutcome(true, 'OK', durationSeconds: fileDuration);
     } catch (e) {
-      return _VerificationOutcome(false, 'Probe exception: $e');
+      return _VerificationOutcome(false, 'Probe exception during validation: $e');
     }
   }
 }
