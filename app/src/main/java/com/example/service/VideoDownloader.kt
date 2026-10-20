@@ -195,54 +195,19 @@ class VideoDownloader(
                     }
 
                     onProgress(100, totalWritten, totalWritten)
-                    Log.d(TAG, "[DL-2] Video download complete & verified ($totalWritten bytes). Starting in-app re-encoding check...")
+                    Log.d(TAG, "[DL-2] Video download complete & verified ($totalWritten bytes). Saving directly to device storage without re-encoding...")
 
-                    // Step 4: In-app video re-encoding / compatibility processing
-                    onProcessing(0, "Optimizing for universal compatibility…")
-                    val encoder = VideoEncoderService(context)
-                    val encodeResult = encoder.reencodeToCompatibleMp4(
-                        inputFile = rawTempFile,
-                        onProgress = { pct ->
-                            onProcessing(pct, if (pct < 90) "Transcoding to H.264 CFR ($pct%)…" else "Optimizing container ($pct%)…")
-                        },
-                        skipIfAlreadyCompatible = true
-                    )
-
-                    val (fileToSave, wasReencoded, encodingNote) = when (encodeResult) {
-                        is VideoEncoderService.EncodeResult.Success -> {
-                            if (encodeResult.wasSkippedAlreadyCompatible) {
-                                Triple(rawTempFile, false, "Already in compatible H.264 CFR format")
-                            } else {
-                                // Re-encoded file is ready!
-                                // Delete pre-encode raw temp file now to prevent duplicate disk usage
-                                try {
-                                    if (rawTempFile.exists() && rawTempFile.path != encodeResult.file.path) {
-                                        rawTempFile.delete()
-                                    }
-                                } catch (_: Exception) {}
-                                Triple(encodeResult.file, true, "Re-encoded to universal H.264/AAC CFR")
-                            }
-                        }
-                        is VideoEncoderService.EncodeResult.Fallback -> {
-                            Log.w(TAG, "[ENCODE-FALLBACK] Re-encode fallback: ${encodeResult.reason}. Using original file.")
-                            Triple(rawTempFile, false, "Saved, but may not be compatible with all editing apps (${encodeResult.reason})")
-                        }
-                    }
-
-                    onProcessing(100, "Saving to gallery…")
-
-                    // Step 5: Transfer to MediaStore / Public Gallery
+                    // Direct storage save without video encoding
                     val saveResult = try {
                         MediaSaver.saveExistingVideoFileToGallery(
                             context = context,
-                            videoFile = fileToSave,
+                            videoFile = rawTempFile,
                             title = info.title
                         )
                     } finally {
-                        // Clean up fileToSave temp file
                         try {
-                            if (fileToSave.exists()) {
-                                fileToSave.delete()
+                            if (rawTempFile.exists()) {
+                                rawTempFile.delete()
                             }
                         } catch (_: Exception) {}
                     }
@@ -255,7 +220,7 @@ class VideoDownloader(
                         fileSizeBytes = saveResult.sizeBytes
                     )
 
-                    Log.i(TAG, "[DL-DONE] Video successfully saved & recorded: ${saveResult.filePath} (reencoded=$wasReencoded)")
+                    Log.i(TAG, "[DL-DONE] Video successfully saved directly to storage: ${saveResult.filePath}")
 
                     return Result.success(
                         DownloadOutcome(
@@ -263,8 +228,8 @@ class VideoDownloader(
                             filePath = saveResult.filePath,
                             fileSize = saveResult.sizeBytes,
                             videoInfo = info,
-                            isCompatibilityReencoded = wasReencoded,
-                            encodingNote = encodingNote
+                            isCompatibilityReencoded = false,
+                            encodingNote = null
                         )
                     )
                 } finally {

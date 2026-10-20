@@ -230,7 +230,7 @@ class VideoDownloadService : Service() {
                 _progressEvents.tryEmit(DownloadProgressEvent.Progress(url, percent, bytesWritten, totalBytes, info))
             },
             onProcessing = { percent, statusMessage ->
-                updateNotification("Optimizing video: $percent% - $statusMessage", percent, false)
+                updateNotification("Saving video: $percent% - $statusMessage", percent, false)
                 _progressEvents.tryEmit(DownloadProgressEvent.Processing(url, percent, statusMessage, info))
             }
         )

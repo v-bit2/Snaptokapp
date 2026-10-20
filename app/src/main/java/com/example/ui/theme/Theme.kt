@@ -1,6 +1,5 @@
 package com.example.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -8,48 +7,52 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
-    primary = CoralPrimary,
+    primary = NeoCoral,
     onPrimary = Color.White,
-    primaryContainer = CoralVariant,
+    primaryContainer = NeoCoral.copy(alpha = 0.2f),
     onPrimaryContainer = Color.White,
-    secondary = TealAccent,
-    onSecondary = Color(0xFF00363A),
-    secondaryContainer = TealDark,
-    onSecondaryContainer = Color.White,
-    background = DarkCanvas,
+    secondary = NeoYellow,
+    onSecondary = Color(0xFF141416),
+    secondaryContainer = NeoCyan,
+    onSecondaryContainer = Color(0xFF141416),
+    tertiary = NeoMint,
+    onTertiary = Color(0xFF141416),
+    background = PaperBgDark,
     onBackground = DarkOnSurface,
-    surface = DarkSurface,
+    surface = PaperSurfaceDark,
     onSurface = DarkOnSurface,
-    surfaceVariant = DarkSurfaceVariant,
+    surfaceVariant = PaperSurfaceAltDark,
     onSurfaceVariant = DarkOnSurfaceVariant,
-    outline = DarkOutline,
+    outline = PaperBorderDark,
     error = ErrorRed,
     onError = Color.White
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = CoralPrimary,
+    primary = NeoCoral,
     onPrimary = Color.White,
-    primaryContainer = CoralVariant,
-    onPrimaryContainer = Color.White,
-    secondary = TealDark,
-    onSecondary = Color.White,
-    secondaryContainer = TealAccent,
-    onSecondaryContainer = Color(0xFF00363A),
-    background = LightCanvas,
+    primaryContainer = NeoCoral.copy(alpha = 0.15f),
+    onPrimaryContainer = Color(0xFF141416),
+    secondary = NeoYellow,
+    onSecondary = Color(0xFF141416),
+    secondaryContainer = NeoCyan,
+    onSecondaryContainer = Color(0xFF141416),
+    tertiary = NeoMint,
+    onTertiary = Color(0xFF141416),
+    background = PaperBgLight,
     onBackground = LightOnSurface,
-    surface = LightSurface,
+    surface = PaperSurfaceLight,
     onSurface = LightOnSurface,
     surfaceVariant = LightSurfaceVariant,
     onSurfaceVariant = LightOnSurfaceVariant,
-    outline = LightOutline,
+    outline = PaperBorderLight,
     error = ErrorRed,
     onError = Color.White
 )
 
 @Composable
 fun SnapTokTheme(
-    darkTheme: Boolean = true, // Default to sleek dark mode as requested
+    darkTheme: Boolean = false, // Default to iconic paper light neobrutalism
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
@@ -64,7 +67,7 @@ fun SnapTokTheme(
 // Keep alias for compatibility
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = true,
+    darkTheme: Boolean = false,
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {

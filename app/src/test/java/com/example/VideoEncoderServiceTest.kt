@@ -72,4 +72,60 @@ class VideoEncoderServiceTest {
         val validation = service.validateOutputFile(dummyCorruptedFile)
         assertFalse(validation.isValid)
     }
+
+    @Test
+    fun `test Mp4FastStart relocates moov atom and updates chunk offsets`() {
+        val inputMp4 = tempFolder.newFile("test_input.mp4")
+        val outputMp4 = File(tempFolder.root, "test_faststart_output.mp4")
+
+        // Build a synthetic MP4: ftyp (16 bytes) + mdat (24 bytes) + moov with stco (32 bytes)
+        FileOutputStream(inputMp4).use { fos ->
+            val buf = java.nio.ByteBuffer.allocate(16 + 24 + 32)
+            // 1. ftyp atom (16 bytes)
+            buf.putInt(16)
+            buf.put("ftyp".toByteArray(Charsets.ISO_8859_1))
+            buf.put("mp42".toByteArray(Charsets.ISO_8859_1))
+            buf.putInt(0)
+
+            // 2. mdat atom (24 bytes)
+            buf.putInt(24)
+            buf.put("mdat".toByteArray(Charsets.ISO_8859_1))
+            buf.put(ByteArray(16) { 0xAA.toByte() })
+
+            // 3. moov atom (32 bytes)
+            buf.putInt(32)
+            buf.put("moov".toByteArray(Charsets.ISO_8859_1))
+            // inside moov: stco (20 bytes)
+            buf.putInt(20)
+            buf.put("stco".toByteArray(Charsets.ISO_8859_1))
+            buf.putInt(0) // version & flags
+            buf.putInt(1) // entry count = 1
+            buf.putInt(40) // initial chunk offset = 40
+            // 4 pad bytes to fill moov (32 - 8 - 20 = 4)
+            buf.put(ByteArray(4))
+
+            fos.write(buf.array())
+        }
+
+        // Before faststart, moov is after mdat
+        assertFalse(com.example.service.Mp4FastStart.hasFastStart(inputMp4))
+
+        // Process with faststart (in-place)
+        val success = com.example.service.Mp4FastStart.process(inputMp4)
+        assertTrue("Mp4FastStart process should succeed", success)
+        assertTrue("Input file must still exist", inputMp4.exists())
+        assertEquals(72L, inputMp4.length())
+
+        // After faststart, moov is before mdat
+        assertTrue(com.example.service.Mp4FastStart.hasFastStart(inputMp4))
+
+        // Check that stco offset was adjusted from 40 to 40 + moovSize (32) = 72
+        java.io.RandomAccessFile(inputMp4, "r").use { raf ->
+            // ftyp = 16 bytes. Next is moov header (8 bytes) + stco header (8 bytes) + version/flags (4 bytes) + count (4 bytes)
+            // Offset to the chunk offset value: 16 + 8 + 8 + 4 + 4 = 40
+            raf.seek(40)
+            val newOffset = raf.readInt()
+            assertEquals(72, newOffset)
+        }
+    }
 }

@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,24 +25,16 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,10 +55,17 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.entity.DownloadedVideoEntity
 import com.example.data.storage.MediaSaver
-import com.example.ui.theme.CoralPrimary
+import com.example.ui.components.NeoBadge
+import com.example.ui.components.NeoButton
+import com.example.ui.components.NeoCard
 import com.example.ui.theme.ErrorRed
-import com.example.ui.theme.TealAccent
+import com.example.ui.theme.NeoCoral
+import com.example.ui.theme.NeoCyan
+import com.example.ui.theme.NeoYellow
 
+/**
+ * Clean Paper Neobrutalism History Screen
+ */
 @Composable
 fun HistoryScreen(
     videos: List<DownloadedVideoEntity>,
@@ -88,7 +87,7 @@ fun HistoryScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         // Header
         Row(
@@ -97,47 +96,71 @@ fun HistoryScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Library",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        letterSpacing = (-0.3).sp
+                    )
+                    NeoBadge(
+                        text = "${videos.size} SAVED",
+                        backgroundColor = NeoYellow,
+                        fontSize = 9
+                    )
+                }
                 Text(
-                    text = "Download History",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "${videos.size} items saved • ${MediaSaver.formatBytes(totalBytes)}",
+                    text = "${MediaSaver.formatBytes(totalBytes)} in Gallery",
                     fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             if (videos.isNotEmpty()) {
-                IconButton(
-                    onClick = { showClearAllConfirm = true },
-                    modifier = Modifier
-                        .size(32.dp)
-                        .testTag("clear_all_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DeleteSweep,
-                        contentDescription = "Clear All",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
+                Box(modifier = Modifier.padding(end = 2.dp, bottom = 2.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .offset(x = 1.5.dp, y = 1.5.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.outline)
                     )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
+                            .clickable { showClearAllConfirm = true }
+                            .testTag("clear_all_button")
+                            .padding(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Clear All",
+                            tint = ErrorRed,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Search Bar
+        // Search Bar with Paper Neobrutalism Border
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchChanged,
-            placeholder = { Text("Search by caption or @creator", fontSize = 12.sp) },
+            placeholder = { Text("Search by caption or @creator…", fontSize = 12.sp) },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(16.dp)
                 )
             },
@@ -147,24 +170,30 @@ fun HistoryScreen(
                         onClick = { onSearchChanged("") },
                         modifier = Modifier.size(24.dp)
                     ) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
+                        Icon(
+                            Icons.Default.Clear,
+                            contentDescription = "Clear search",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(15.dp)
+                        )
                     }
                 }
             },
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("history_search_field"),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(8.dp),
             singleLine = true,
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = CoralPrimary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                focusedBorderColor = MaterialTheme.colorScheme.outline,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
             )
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         // List or Empty
         if (videos.isEmpty()) {
@@ -174,7 +203,7 @@ fun HistoryScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("history_list"),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 items(videos, key = { it.id }) { video ->
@@ -205,22 +234,37 @@ fun HistoryScreen(
     itemToDelete?.let { video ->
         AlertDialog(
             onDismissRequest = { itemToDelete = null },
-            title = { Text("Delete Download?") },
-            text = { Text("Are you sure you want to remove \"${video.title.ifBlank { "this item" }}\" from your history?") },
+            title = {
+                Text(
+                    "DELETE DOWNLOAD?",
+                    fontWeight = FontWeight.Black,
+                    fontSize = 14.sp
+                )
+            },
+            text = {
+                Text(
+                    "Are you sure you want to remove \"${video.title.ifBlank { "this item" }}\" from your history?",
+                    fontSize = 12.sp
+                )
+            },
             confirmButton = {
-                Button(
+                NeoButton(
+                    text = "DELETE",
                     onClick = {
                         onDeleteVideo(video)
                         itemToDelete = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
-                ) {
-                    Text("Delete")
-                }
+                    containerColor = ErrorRed,
+                    contentColor = Color.White,
+                    height = 32.dp,
+                    fontSize = 11,
+                    shadowOffset = 2.dp,
+                    modifier = Modifier.width(90.dp)
+                )
             },
             dismissButton = {
                 TextButton(onClick = { itemToDelete = null }) {
-                    Text("Cancel")
+                    Text("Cancel", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 }
             }
         )
@@ -230,22 +274,37 @@ fun HistoryScreen(
     if (showClearAllConfirm) {
         AlertDialog(
             onDismissRequest = { showClearAllConfirm = false },
-            title = { Text("Clear All History?") },
-            text = { Text("This will permanently remove all downloaded items from your history and device storage.") },
+            title = {
+                Text(
+                    "CLEAR ALL HISTORY?",
+                    fontWeight = FontWeight.Black,
+                    fontSize = 14.sp
+                )
+            },
+            text = {
+                Text(
+                    "This will remove all downloaded items from your history.",
+                    fontSize = 12.sp
+                )
+            },
             confirmButton = {
-                Button(
+                NeoButton(
+                    text = "CLEAR ALL",
                     onClick = {
                         onClearAll()
                         showClearAllConfirm = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
-                ) {
-                    Text("Clear All")
-                }
+                    containerColor = ErrorRed,
+                    contentColor = Color.White,
+                    height = 32.dp,
+                    fontSize = 11,
+                    shadowOffset = 2.dp,
+                    modifier = Modifier.width(100.dp)
+                )
             },
             dismissButton = {
                 TextButton(onClick = { showClearAllConfirm = false }) {
-                    Text("Cancel")
+                    Text("Cancel", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 }
             }
         )
@@ -260,87 +319,94 @@ fun HistoryItemCard(
     onDeleteClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(12.dp)
-            )
-            .clickable { onPlayClick() }
-            .testTag("history_item_${video.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    NeoCard(
+        modifier = modifier.fillMaxWidth(),
+        backgroundColor = MaterialTheme.colorScheme.surface,
+        borderWidth = 1.5.dp,
+        shadowOffset = 2.5.dp,
+        shape = RoundedCornerShape(8.dp),
+        contentPadding = PaddingValues(8.dp),
+        onClick = onPlayClick,
+        testTag = "history_item_${video.id}"
     ) {
         Row(
-            modifier = Modifier.padding(8.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Thumbnail with Play / Photo overlay icon
-            Box(
-                modifier = Modifier
-                    .size(width = 54.dp, height = 72.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
-            ) {
-                AsyncImage(
-                    model = video.coverUrl,
-                    contentDescription = "Cover",
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
-                )
-
-                // Play / Photos icon badge
+            // Thumbnail with solid border
+            Box(modifier = Modifier.padding(end = 1.dp, bottom = 1.dp)) {
                 Box(
                     modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.6f)),
+                        .size(width = 54.dp, height = 72.dp)
+                        .offset(x = 1.5.dp, y = 1.5.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.outline)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(width = 54.dp, height = 72.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = if (video.isPhotoPost) Icons.Default.Collections else Icons.Default.PlayArrow,
-                        contentDescription = if (video.isPhotoPost) "View photos" else "Play",
-                        tint = Color.White,
-                        modifier = Modifier.size(15.dp)
+                    AsyncImage(
+                        model = video.coverUrl,
+                        contentDescription = "Cover",
+                        modifier = Modifier.matchParentSize(),
+                        contentScale = ContentScale.Crop
                     )
-                }
 
-                if (video.isPhotoPost) {
-                    Surface(
+                    // Play / Photos icon badge
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(2.dp),
-                        shape = RoundedCornerShape(3.dp),
-                        color = Color.Black.copy(alpha = 0.75f)
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF141416).copy(alpha = 0.75f))
+                            .border(1.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "${video.photoCount}P",
-                            color = TealAccent,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                        Icon(
+                            imageVector = if (video.isPhotoPost) Icons.Default.Collections else Icons.Default.PlayArrow,
+                            contentDescription = if (video.isPhotoPost) "View photos" else "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
                         )
                     }
-                } else if (video.durationSeconds > 0) {
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(2.dp),
-                        shape = RoundedCornerShape(3.dp),
-                        color = Color.Black.copy(alpha = 0.75f)
-                    ) {
-                        Text(
-                            text = MediaSaver.formatDuration(video.durationSeconds),
-                            color = Color.White,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
-                        )
+
+                    if (video.isPhotoPost) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(2.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(NeoCyan)
+                                .padding(horizontal = 3.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "${video.photoCount}P",
+                                color = Color(0xFF141416),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    } else if (video.durationSeconds > 0) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(2.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color(0xFF141416))
+                                .padding(horizontal = 3.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = MediaSaver.formatDuration(video.durationSeconds),
+                                color = Color.White,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -348,12 +414,13 @@ fun HistoryItemCard(
             // Details
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
-                    text = video.title,
+                    text = video.title.ifBlank { "TikTok Video" },
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -361,28 +428,25 @@ fun HistoryItemCard(
                 Text(
                     text = "@${video.authorHandle}",
                     fontSize = 10.sp,
-                    color = CoralPrimary,
+                    fontWeight = FontWeight.Bold,
+                    color = NeoCoral,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (video.isPhotoPost) "${video.photoCount} Photos" else MediaSaver.formatBytes(video.fileSizeBytes),
-                        fontSize = 9.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    NeoBadge(
+                        text = if (video.isPhotoPost) "${video.photoCount} PHOTOS" else "NO WATERMARK",
+                        backgroundColor = if (video.isPhotoPost) NeoCyan else NeoYellow,
+                        fontSize = 8
                     )
                     Text(
-                        text = "•",
+                        text = MediaSaver.formatBytes(video.fileSizeBytes),
                         fontSize = 9.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = MediaSaver.formatDate(video.downloadedAt),
-                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -397,7 +461,7 @@ fun HistoryItemCard(
                     Icon(
                         imageVector = Icons.Default.Share,
                         contentDescription = "Share",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(15.dp)
                     )
                 }
@@ -406,7 +470,7 @@ fun HistoryItemCard(
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = ErrorRed,
                         modifier = Modifier.size(15.dp)
                     )
                 }
@@ -420,38 +484,50 @@ fun EmptyHistoryView(isSearching: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(CoralPrimary.copy(alpha = 0.1f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = if (isSearching) Icons.Default.Search else Icons.Default.VideoLibrary,
-                contentDescription = null,
-                tint = CoralPrimary,
-                modifier = Modifier.size(24.dp)
+        Box(modifier = Modifier.padding(end = 2.dp, bottom = 2.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .offset(x = 2.5.dp, y = 2.5.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.outline)
             )
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(NeoYellow)
+                    .border(2.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isSearching) Icons.Default.Search else Icons.Default.VideoLibrary,
+                    contentDescription = null,
+                    tint = Color(0xFF141416),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         Text(
-            text = if (isSearching) "No matching downloads" else "No downloads yet",
+            text = if (isSearching) "NO MATCHING DOWNLOADS" else "YOUR LIBRARY IS EMPTY",
             fontSize = 13.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Black,
+            letterSpacing = 0.5.sp,
+            color = MaterialTheme.colorScheme.onSurface
         )
 
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
             text = if (isSearching) "Try searching with a different caption or username"
-            else "Paste a TikTok link on the Downloader tab or share a video/photo post to save it here!",
+            else "Paste any TikTok video or photo link on the Downloader tab to save it here!",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center

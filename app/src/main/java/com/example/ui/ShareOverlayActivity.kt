@@ -798,7 +798,7 @@ fun ShareOverlayScreen(
 
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "Stage 2/2: Optimizing Video",
+                                            text = "Saving Video to Storage",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = TealAccent,
@@ -811,7 +811,7 @@ fun ShareOverlayScreen(
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
-                                            text = "Universal H.264 CFR (CapCut / Alight Motion)",
+                                            text = "Direct download without watermark",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 10.sp,
@@ -845,7 +845,7 @@ fun ShareOverlayScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "Downloaded ✓ → Encoding CFR…",
+                                        text = "Direct Download Complete ✓",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 10.sp
@@ -915,15 +915,10 @@ fun ShareOverlayScreen(
                                             fontWeight = FontWeight.Bold,
                                             color = SuccessGreen
                                         )
-                                        val compatibilityNote = if (outcome.isCompatibilityReencoded) {
-                                            "H.264 CFR • Universal Editor Compatible"
-                                        } else {
-                                            outcome.encodingNote ?: "Ready to watch & edit"
-                                        }
                                         Text(
-                                            text = "${MediaSaver.formatBytes(outcome.fileSize)} • $compatibilityNote",
+                                            text = "${MediaSaver.formatBytes(outcome.fileSize)} • Ready to watch & share",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = if (outcome.isCompatibilityReencoded) TealAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 10.sp
                                         )
                                     }

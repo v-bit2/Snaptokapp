@@ -1,6 +1,5 @@
 package com.example.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -8,10 +7,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,23 +21,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -53,10 +46,11 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.storage.MediaSaver
 import com.example.service.VideoDownloader
-import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.ErrorRed
-import com.example.ui.theme.SuccessGreen
-import com.example.ui.theme.TealAccent
+import com.example.ui.theme.NeoCoral
+import com.example.ui.theme.NeoCyan
+import com.example.ui.theme.NeoMint
+import com.example.ui.theme.NeoYellow
 
 @Composable
 fun DownloadingProgressCard(
@@ -71,64 +65,76 @@ fun DownloadingProgressCard(
         label = "DownloadProgress"
     )
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .border(
-                width = 1.dp,
-                color = CoralPrimary.copy(alpha = 0.35f),
-                shape = RoundedCornerShape(14.dp)
-            ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    NeoCard(
+        modifier = modifier.fillMaxWidth(),
+        backgroundColor = MaterialTheme.colorScheme.surface,
+        borderWidth = 2.dp,
+        shadowOffset = 3.dp,
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(12.dp)
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier.size(52.dp),
-                    color = CoralPrimary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    strokeWidth = 4.dp
-                )
-                Text(
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = NeoCoral,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "DOWNLOADING VIDEO…",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        letterSpacing = 0.4.sp
+                    )
+                }
+
+                NeoBadge(
                     text = "$percent%",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    backgroundColor = NeoYellow,
+                    fontSize = 11,
+                    shadowOffset = 1.5.dp
                 )
             }
 
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "Downloading No-Watermark Video…",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = if (totalBytes > 0) {
-                        "${MediaSaver.formatBytes(downloadedBytes)} / ${MediaSaver.formatBytes(totalBytes)}"
-                    } else {
-                        MediaSaver.formatBytes(downloadedBytes)
-                    },
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            LinearProgressIndicator(
-                progress = { animatedProgress },
+            // Paper Neo Progress Bar (Solid border with filled chunk)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                color = TealAccent,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(5.dp))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedProgress)
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(NeoCoral)
+                )
+            }
+
+            Text(
+                text = if (totalBytes > 0) {
+                    "${MediaSaver.formatBytes(downloadedBytes)} / ${MediaSaver.formatBytes(totalBytes)}"
+                } else {
+                    MediaSaver.formatBytes(downloadedBytes)
+                },
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -146,74 +152,65 @@ fun ProcessingProgressCard(
         label = "ProcessingProgress"
     )
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .border(
-                width = 1.dp,
-                color = TealAccent.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(14.dp)
-            ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    NeoCard(
+        modifier = modifier.fillMaxWidth(),
+        backgroundColor = MaterialTheme.colorScheme.surface,
+        borderWidth = 2.dp,
+        shadowOffset = 3.dp,
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(12.dp)
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier.size(52.dp),
-                    color = TealAccent,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    strokeWidth = 4.dp
-                )
-                Text(
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = NeoMint,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = statusMessage.ifBlank { "SAVING VIDEO…" }.uppercase(),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        letterSpacing = 0.4.sp
+                    )
+                }
+
+                NeoBadge(
                     text = "$percent%",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TealAccent
+                    backgroundColor = NeoMint,
+                    fontSize = 11,
+                    shadowOffset = 1.5.dp
                 )
             }
 
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "Optimizing for Editor Compatibility…",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Stage 2/2: Universal H.264 CFR (30fps)",
-                    fontSize = 11.sp,
-                    color = TealAccent,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = statusMessage,
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            LinearProgressIndicator(
-                progress = { animatedProgress },
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                color = TealAccent,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-
-            Text(
-                text = "Re-encoding ensures seamless editing in Alight Motion, CapCut & Gallery",
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(5.dp))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedProgress)
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(NeoMint)
+                )
+            }
         }
     }
 }
@@ -231,61 +228,55 @@ fun PhotoDownloadingProgressCard(
         label = "PhotoDownloadProgress"
     )
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .border(
-                width = 1.dp,
-                color = CoralPrimary.copy(alpha = 0.35f),
-                shape = RoundedCornerShape(14.dp)
-            ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    NeoCard(
+        modifier = modifier.fillMaxWidth(),
+        backgroundColor = MaterialTheme.colorScheme.surface,
+        borderWidth = 2.dp,
+        shadowOffset = 3.dp,
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(12.dp)
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier.size(52.dp),
-                    color = CoralPrimary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    strokeWidth = 4.dp
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(
-                    text = "$percent%",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "Saving Photos to Gallery…",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Downloading $completedCount of $totalCount selected photos",
+                    text = "SAVING PHOTOS ($completedCount/$totalCount)",
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    letterSpacing = 0.4.sp
+                )
+
+                NeoBadge(
+                    text = "$percent%",
+                    backgroundColor = NeoCyan,
+                    fontSize = 11,
+                    shadowOffset = 1.5.dp
                 )
             }
 
-            LinearProgressIndicator(
-                progress = { animatedProgress },
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(5.dp)
-                    .clip(RoundedCornerShape(3.dp)),
-                color = TealAccent,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(5.dp))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedProgress)
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(NeoCyan)
+                )
+            }
         }
     }
 }
@@ -298,141 +289,134 @@ fun DownloadSuccessCard(
     onResetClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .border(
-                width = 1.dp,
-                color = SuccessGreen.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(14.dp)
-            ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    NeoCard(
+        modifier = modifier.fillMaxWidth(),
+        backgroundColor = MaterialTheme.colorScheme.surface,
+        borderWidth = 2.dp,
+        shadowOffset = 3.dp,
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(12.dp)
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Success Header
+            // Header Ticket Tag
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(SuccessGreen.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = SuccessGreen,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+                NeoBadge(
+                    text = "SAVED TO GALLERY ✓",
+                    backgroundColor = NeoMint,
+                    textColor = Color(0xFF141416),
+                    fontSize = 10,
+                    shadowOffset = 1.5.dp
+                )
 
-                Column {
-                    Text(
-                        text = "Saved to Gallery!",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = SuccessGreen
-                    )
-                    val formatLabel = if (outcome.isCompatibilityReencoded) {
-                        "H.264 CFR • Universal Editor Ready"
-                    } else {
-                        outcome.encodingNote ?: "Ready to watch & edit"
-                    }
-                    Text(
-                        text = "Movies/SnapTok • ${MediaSaver.formatBytes(outcome.fileSize)} • $formatLabel",
-                        fontSize = 10.sp,
-                        color = if (outcome.isCompatibilityReencoded) TealAccent else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = MediaSaver.formatBytes(outcome.fileSize),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
-            // Thumbnail Preview & Details
+            // Preview Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(6.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    .padding(8.dp),
+                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                    .padding(6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                AsyncImage(
-                    model = outcome.videoInfo.coverUrl,
-                    contentDescription = "Saved Thumbnail",
-                    modifier = Modifier
-                        .size(width = 44.dp, height = 58.dp)
-                        .clip(RoundedCornerShape(6.dp)),
-                    contentScale = ContentScale.Crop
-                )
+                Box(modifier = Modifier.padding(end = 1.dp, bottom = 1.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 38.dp, height = 50.dp)
+                            .offset(x = 1.5.dp, y = 1.5.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.outline)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(width = 38.dp, height = 50.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                    ) {
+                        AsyncImage(
+                            model = outcome.videoInfo.coverUrl,
+                            contentDescription = "Saved Thumbnail",
+                            modifier = Modifier.matchParentSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
 
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         text = outcome.videoInfo.title.ifBlank { "TikTok Video" },
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "@${outcome.videoInfo.authorUsername}",
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            // Action Buttons: Play, Share, New Download
+            // Tactile Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Button(
+                NeoButton(
+                    text = "PLAY",
                     onClick = onPlayClick,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(36.dp)
-                        .testTag("action_play_button"),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary)
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Play", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+                    icon = Icons.Default.PlayArrow,
+                    containerColor = NeoMint,
+                    contentColor = Color(0xFF141416),
+                    height = 36.dp,
+                    fontSize = 11,
+                    shadowOffset = 2.dp,
+                    modifier = Modifier.weight(1f),
+                    testTag = "action_play_button"
+                )
 
-                OutlinedButton(
+                NeoButton(
+                    text = "SHARE",
                     onClick = onShareClick,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(36.dp)
-                        .testTag("action_share_button"),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Share", fontSize = 12.sp)
-                }
+                    icon = Icons.Default.Share,
+                    containerColor = NeoCyan,
+                    contentColor = Color(0xFF141416),
+                    height = 36.dp,
+                    fontSize = 11,
+                    shadowOffset = 2.dp,
+                    modifier = Modifier.weight(1f),
+                    testTag = "action_share_button"
+                )
 
-                OutlinedButton(
+                NeoButton(
+                    text = "NEW",
                     onClick = onResetClick,
-                    modifier = Modifier
-                        .height(36.dp)
-                        .testTag("action_new_button"),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "New Download", modifier = Modifier.size(16.dp))
-                }
+                    icon = Icons.Default.Refresh,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    height = 36.dp,
+                    fontSize = 11,
+                    shadowOffset = 2.dp,
+                    modifier = Modifier.width(76.dp),
+                    testTag = "action_new_button"
+                )
             }
         }
     }
@@ -447,130 +431,126 @@ fun PhotoSuccessCard(
     onResetClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .border(
-                width = 1.dp,
-                color = SuccessGreen.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(14.dp)
-            )
-            .testTag("photo_success_card"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    NeoCard(
+        modifier = modifier.fillMaxWidth(),
+        backgroundColor = MaterialTheme.colorScheme.surface,
+        borderWidth = 2.dp,
+        shadowOffset = 3.dp,
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(12.dp),
+        testTag = "photo_success_card"
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Success Header
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .background(SuccessGreen.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = SuccessGreen,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                NeoBadge(
+                    text = "${outcome.successfulCount} PHOTOS SAVED ✓",
+                    backgroundColor = NeoMint,
+                    textColor = Color(0xFF141416),
+                    fontSize = 10,
+                    shadowOffset = 1.5.dp
+                )
 
-                Column {
-                    Text(
-                        text = "${outcome.successfulCount} Photos Saved to Gallery!",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = SuccessGreen
-                    )
-                    Text(
-                        text = "Pictures/SnapTok • ${MediaSaver.formatBytes(outcome.totalSize)}",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = MediaSaver.formatBytes(outcome.totalSize),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
-            // Thumbnail strip of saved images
+            // Thumbnail strip with paper borders
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 itemsIndexed(outcome.savedUris) { index, uri ->
-                    Box(
-                        modifier = Modifier
-                            .size(62.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                            .clickable {
-                                onViewPhotosClick(
-                                    outcome.savedUris,
-                                    outcome.postInfo.title,
-                                    outcome.postInfo.authorUsername
-                                )
-                            }
-                    ) {
-                        AsyncImage(
-                            model = uri,
-                            contentDescription = "Saved Photo ${index + 1}",
-                            modifier = Modifier.fillMaxWidth(),
-                            contentScale = ContentScale.Crop
+                    Box(modifier = Modifier.padding(end = 1.dp, bottom = 1.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .offset(x = 1.5.dp, y = 1.5.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.outline)
                         )
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
+                                .clickable {
+                                    onViewPhotosClick(
+                                        outcome.savedUris,
+                                        outcome.postInfo.title,
+                                        outcome.postInfo.authorUsername
+                                    )
+                                }
+                        ) {
+                            AsyncImage(
+                                model = uri,
+                                contentDescription = "Saved Photo ${index + 1}",
+                                modifier = Modifier.matchParentSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
                     }
                 }
             }
 
             // Partial failure warning if any failed
             if (outcome.failedUrls.isNotEmpty()) {
-                Surface(
-                    color = ErrorRed.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(ErrorRed.copy(alpha = 0.15f))
+                        .border(1.5.dp, ErrorRed, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(14.dp))
                             Text(
-                                text = "${outcome.failedUrls.size} photos failed to download",
-                                fontSize = 11.sp,
+                                text = "${outcome.failedUrls.size} failed",
+                                fontSize = 10.sp,
                                 color = ErrorRed,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
                             )
                         }
-                        Button(
+                        NeoButton(
+                            text = "RETRY",
                             onClick = { onRetryFailed(outcome.failedUrls) },
-                            colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
-                            shape = RoundedCornerShape(6.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("Retry", fontSize = 11.sp)
-                        }
+                            containerColor = ErrorRed,
+                            contentColor = Color.White,
+                            height = 26.dp,
+                            fontSize = 9,
+                            shadowOffset = 1.dp,
+                            modifier = Modifier.width(60.dp)
+                        )
                     }
                 }
             }
 
-            // Action Buttons: View Photos, Share All, New Download
+            // Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Button(
+                NeoButton(
+                    text = "VIEW",
                     onClick = {
                         onViewPhotosClick(
                             outcome.savedUris,
@@ -578,43 +558,43 @@ fun PhotoSuccessCard(
                             outcome.postInfo.authorUsername
                         )
                     },
-                    modifier = Modifier
-                        .weight(1.2f)
-                        .height(38.dp)
-                        .testTag("action_view_photos_button"),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary)
-                ) {
-                    Icon(Icons.Default.Collections, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("View Photos", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+                    icon = Icons.Default.Collections,
+                    containerColor = NeoCoral,
+                    contentColor = Color.White,
+                    height = 36.dp,
+                    fontSize = 11,
+                    shadowOffset = 2.dp,
+                    modifier = Modifier.weight(1.1f),
+                    testTag = "action_view_photos_button"
+                )
 
-                OutlinedButton(
+                NeoButton(
+                    text = "SHARE",
                     onClick = {
                         onShareAllClick(outcome.savedUris, outcome.postInfo.title)
                     },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .testTag("action_share_all_photos_button"),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Share", fontSize = 12.sp)
-                }
+                    icon = Icons.Default.Share,
+                    containerColor = NeoCyan,
+                    contentColor = Color(0xFF141416),
+                    height = 36.dp,
+                    fontSize = 11,
+                    shadowOffset = 2.dp,
+                    modifier = Modifier.weight(1f),
+                    testTag = "action_share_all_photos_button"
+                )
 
-                OutlinedButton(
+                NeoButton(
+                    text = "NEW",
                     onClick = onResetClick,
-                    modifier = Modifier
-                        .height(38.dp)
-                        .testTag("action_photo_new_button"),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "New Download", modifier = Modifier.size(16.dp))
-                }
+                    icon = Icons.Default.Refresh,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    height = 36.dp,
+                    fontSize = 11,
+                    shadowOffset = 2.dp,
+                    modifier = Modifier.width(76.dp),
+                    testTag = "action_photo_new_button"
+                )
             }
         }
     }
@@ -626,65 +606,65 @@ fun DownloadErrorCard(
     onRetryClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .border(
-                width = 1.dp,
-                color = ErrorRed.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(14.dp)
-            ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    NeoCard(
+        modifier = modifier.fillMaxWidth(),
+        backgroundColor = MaterialTheme.colorScheme.surface,
+        borderColor = ErrorRed,
+        shadowColor = MaterialTheme.colorScheme.outline,
+        borderWidth = 2.dp,
+        shadowOffset = 3.dp,
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(14.dp)
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(30.dp)
                     .clip(CircleShape)
-                    .background(ErrorRed.copy(alpha = 0.15f)),
+                    .background(ErrorRed)
+                    .border(1.5.dp, MaterialTheme.colorScheme.outline, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Error,
                     contentDescription = null,
-                    tint = ErrorRed,
-                    modifier = Modifier.size(18.dp)
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
                 )
             }
 
-            Text(
-                text = "Download Failed",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = ErrorRed
+            NeoBadge(
+                text = "DOWNLOAD FAILED",
+                backgroundColor = ErrorRed,
+                textColor = Color.White,
+                fontSize = 10,
+                shadowOffset = 1.dp
             )
 
             Text(
                 text = message,
                 fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
 
-            Button(
+            NeoButton(
+                text = "TRY AGAIN",
                 onClick = onRetryClick,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary),
-                modifier = Modifier
-                    .height(34.dp)
-                    .testTag("error_retry_button"),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Try Again", fontSize = 12.sp)
-            }
+                icon = Icons.Default.Refresh,
+                containerColor = NeoCoral,
+                contentColor = Color.White,
+                height = 34.dp,
+                fontSize = 11,
+                shadowOffset = 2.dp,
+                modifier = Modifier.width(140.dp),
+                testTag = "error_retry_button"
+            )
         }
     }
 }

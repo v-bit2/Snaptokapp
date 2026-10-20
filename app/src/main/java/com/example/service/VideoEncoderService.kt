@@ -220,11 +220,12 @@ class VideoEncoderService(private val context: Context) {
 
     /**
      * Main pipeline method to transcode or optimize video to universal H.264 CFR MP4.
+     * By default, every video is processed to ensure Alight Motion & NLE compatibility.
      */
     suspend fun reencodeToCompatibleMp4(
         inputFile: File,
         onProgress: (percent: Int) -> Unit = {},
-        skipIfAlreadyCompatible: Boolean = true
+        skipIfAlreadyCompatible: Boolean = false
     ): EncodeResult = withContext(Dispatchers.IO) {
         if (!inputFile.exists() || inputFile.length() == 0L) {
             return@withContext EncodeResult.Fallback(inputFile, "Input file does not exist or is empty.")
@@ -232,14 +233,14 @@ class VideoEncoderService(private val context: Context) {
 
         // Step 1: Pre-encode probe check
         val probe = probeVideo(inputFile)
-        if (skipIfAlreadyCompatible && probe.isAlreadyCompatible) {
-            Log.i(TAG, "[SKIP] Video is already H.264/AAC compatible. Skipping re-encoding.")
+        if (skipIfAlreadyCompatible && probe.isAlreadyCompatible && probe.hasFaststart) {
+            Log.i(TAG, "[SKIP] Video is already H.264/AAC compatible with FastStart. Skipping re-encoding.")
             onProgress(100)
             return@withContext EncodeResult.Success(
                 file = inputFile,
                 durationMs = probe.durationMs,
                 wasSkippedAlreadyCompatible = true,
-                details = "Already H.264/AAC CFR"
+                details = "Already H.264/AAC CFR with FastStart"
             )
         }
 
@@ -265,7 +266,13 @@ class VideoEncoderService(private val context: Context) {
                 throw IllegalStateException("Transcoding returned unsuccessful status.")
             }
 
-            // Step 3: Mandatory Post-Encode Validation (Bugs 1, 2, 3, 4)
+            // Step 2.5: Apply FastStart (relocate 'moov' atom before 'mdat')
+            // CRITICAL FOR ALIGHT MOTION & CAPCUT: Alight Motion fails to read media files
+            // when the 'moov' atom is at the end of the file.
+            val fastStartApplied = Mp4FastStart.process(outputFile)
+            Log.d(TAG, "[FASTSTART] Applied faststart to output: $fastStartApplied")
+
+            // Step 3: Mandatory Post-Encode Validation (Bugs 1, 2, 3, 4 + FastStart)
             onProgress(95)
             val validation = validateOutputFile(
                 file = outputFile,
@@ -476,9 +483,15 @@ class VideoEncoderService(private val context: Context) {
             // Strict Constant Frame Rate timing (BUG 4)
             val frameDurationUs = 1_000_000L / targetFps
             var videoFrameIndex = 0L
+            var lastVideoPts = -1L
+            var videoStartPts = -1L
 
             // Strict Audio presentation timestamp calculation (BUG 2)
-            var audioSamplesWritten = 0L
+            var audioStartPts = -1L
+            var lastAudioPts = -1L
+            val aacFrameDurationUs = 1024L * 1_000_000L / targetAudioSampleRate
+            var audioPacketIndex = 0L
+
             val durationUs = if (probeInfo.durationMs > 0) probeInfo.durationMs * 1000L else 10_000_000L
             var lastReportTime = 0L
 
@@ -497,21 +510,40 @@ class VideoEncoderService(private val context: Context) {
                 val rawSampleTime = extractor.sampleTime
 
                 if (currentTrack == videoTrackIndex) {
-                    // FIX FOR BUG 4: Recalculate every output frame's timestamp as an exact multiple
-                    // of frameDurationUs to guarantee true CFR in the output container.
-                    bufferInfo.presentationTimeUs = videoFrameIndex * frameDurationUs
+                    // FIX FOR BUG 4 & ALIGHT MOTION:
+                    // Ensure strictly monotonically increasing PTS aligned to CFR frameDurationUs
+                    if (videoStartPts < 0L && rawSampleTime >= 0L) {
+                        videoStartPts = rawSampleTime
+                    }
+                    var pts = videoFrameIndex * frameDurationUs
+                    if (pts <= lastVideoPts) {
+                        pts = lastVideoPts + 1000L // Ensure strictly monotonic PTS
+                    }
+                    lastVideoPts = pts
+                    bufferInfo.presentationTimeUs = pts
                     videoFrameIndex++
                     muxer.writeSampleData(muxerVideoTrack, buffer, bufferInfo)
                 } else if (currentTrack == audioTrackIndex && muxerAudioTrack != null) {
-                    // FIX FOR BUG 2: Ensure presentationTimeUs uses the single source of truth
-                    // sample rate constant (targetAudioSampleRate) matching the encoder setup.
-                    val sourceChannels = if (inputAudioFormat?.containsKey(MediaFormat.KEY_CHANNEL_COUNT) == true) {
-                        inputAudioFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-                    } else 2
-
-                    val samplesInChunk = bufferInfo.size / (2 * sourceChannels.coerceAtLeast(1))
-                    bufferInfo.presentationTimeUs = audioSamplesWritten * 1_000_000L / targetAudioSampleRate
-                    audioSamplesWritten += samplesInChunk
+                    // FIX FOR ALIGHT MOTION & BUG 2:
+                    // In AAC audio, each packet represents exactly 1024 PCM samples.
+                    // Recalculating presentation timestamps using 1024 samples (or normalized extractor PTS)
+                    // prevents audio timescale distortion and ensures exact sync with the video stream.
+                    var pts: Long
+                    if (rawSampleTime >= 0L) {
+                        if (audioStartPts < 0L) {
+                            audioStartPts = rawSampleTime
+                        }
+                        val normalized = rawSampleTime - audioStartPts
+                        pts = if (normalized > lastAudioPts) normalized else lastAudioPts + aacFrameDurationUs
+                    } else {
+                        pts = audioPacketIndex * aacFrameDurationUs
+                    }
+                    if (pts <= lastAudioPts) {
+                        pts = lastAudioPts + 1000L
+                    }
+                    lastAudioPts = pts
+                    bufferInfo.presentationTimeUs = pts
+                    audioPacketIndex++
 
                     muxer.writeSampleData(muxerAudioTrack, buffer, bufferInfo)
                 }
@@ -669,6 +701,14 @@ class VideoEncoderService(private val context: Context) {
                         )
                     }
                 }
+            }
+
+            // Check 5: FastStart Moov atom location (MANDATORY FOR ALIGHT MOTION)
+            if (!checkFaststartMoovAtom(file)) {
+                return ValidationResult(
+                    false,
+                    "CHECK 5 FAILED: Moov atom is not positioned before mdat (FastStart missing). Alight Motion will fail to read this media file."
+                )
             }
 
             return ValidationResult(true, "OK")

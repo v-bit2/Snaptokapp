@@ -9,16 +9,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,11 +29,8 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Hd
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -50,9 +47,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.CoralPrimary
-import com.example.ui.theme.TealAccent
+import com.example.ui.components.NeoBadge
+import com.example.ui.components.NeoCard
+import com.example.ui.theme.NeoCoral
+import com.example.ui.theme.NeoCyan
+import com.example.ui.theme.NeoMint
+import com.example.ui.theme.NeoPurple
+import com.example.ui.theme.NeoYellow
 
+/**
+ * Clean Paper Neobrutalism Settings Screen
+ */
 @Composable
 fun SettingsScreen(
     preferHd: Boolean,
@@ -71,28 +76,31 @@ fun SettingsScreen(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // Header
         Column {
             Text(
                 text = "Settings",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.onSurface,
+                letterSpacing = (-0.3).sp
             )
             Text(
                 text = "Preferences & App Configurations",
                 fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
         // Section: Download Preferences
-        SettingsSection(title = "Download Preferences") {
+        SettingsSection(title = "DOWNLOAD PREFERENCES") {
             SettingsToggleRow(
                 icon = Icons.Default.Hd,
-                iconTint = CoralPrimary,
+                stampColor = NeoCoral,
                 title = "High Definition (HD) Priority",
                 subtitle = "Download highest available resolution without watermark",
                 checked = preferHd,
@@ -102,9 +110,9 @@ fun SettingsScreen(
 
             SettingsToggleRow(
                 icon = Icons.Default.ContentPaste,
-                iconTint = TealAccent,
+                stampColor = NeoCyan,
                 title = "Auto-Detect Clipboard Links",
-                subtitle = "Suggest download when a TikTok link is copied",
+                subtitle = "Suggest download banner when a TikTok link is copied",
                 checked = autoFetchClipboard,
                 onCheckedChange = { onToggleAutoFetchClipboard() },
                 testTag = "setting_toggle_clipboard"
@@ -112,7 +120,7 @@ fun SettingsScreen(
 
             SettingsClickableRow(
                 icon = Icons.Default.Folder,
-                iconTint = Color(0xFFFFB703),
+                stampColor = NeoYellow,
                 title = "Save Location",
                 subtitle = "Device Gallery > Movies / SnapTok",
                 onClick = {
@@ -122,12 +130,12 @@ fun SettingsScreen(
         }
 
         // Section: Appearance
-        SettingsSection(title = "Appearance") {
+        SettingsSection(title = "APPEARANCE") {
             SettingsToggleRow(
                 icon = Icons.Default.DarkMode,
-                iconTint = Color(0xFFA855F7),
+                stampColor = NeoPurple,
                 title = "Dark Theme",
-                subtitle = "Sleek high-contrast obsidian dark palette",
+                subtitle = "Paper chalkboard slate dark palette",
                 checked = isDarkTheme,
                 onCheckedChange = { onToggleTheme() },
                 testTag = "setting_toggle_theme"
@@ -135,12 +143,12 @@ fun SettingsScreen(
         }
 
         // Section: Storage & Maintenance
-        SettingsSection(title = "Storage & Maintenance") {
+        SettingsSection(title = "STORAGE & MAINTENANCE") {
             SettingsClickableRow(
                 icon = Icons.Default.CleaningServices,
-                iconTint = Color(0xFF06D6A0),
+                stampColor = NeoMint,
                 title = "Clear Temporary Cache",
-                subtitle = "Free up network thumbnail cache",
+                subtitle = "Free up network thumbnail and cache files",
                 onClick = {
                     onClearCache()
                     Toast.makeText(context, "App cache cleared successfully!", Toast.LENGTH_SHORT).show()
@@ -150,10 +158,10 @@ fun SettingsScreen(
         }
 
         // Section: About & Community
-        SettingsSection(title = "About SnapTok") {
+        SettingsSection(title = "ABOUT SNAPTOK") {
             SettingsClickableRow(
                 icon = Icons.Default.Star,
-                iconTint = Color(0xFFFFC107),
+                stampColor = NeoYellow,
                 title = "Rate SnapTok",
                 subtitle = "Support us with 5 stars on Google Play",
                 onClick = {
@@ -168,7 +176,7 @@ fun SettingsScreen(
 
             SettingsClickableRow(
                 icon = Icons.Default.Share,
-                iconTint = TealAccent,
+                stampColor = NeoCyan,
                 title = "Share SnapTok with Friends",
                 subtitle = "Help others save TikTok videos without watermark",
                 onClick = {
@@ -183,7 +191,7 @@ fun SettingsScreen(
 
             SettingsClickableRow(
                 icon = Icons.Default.Lock,
-                iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                stampColor = MaterialTheme.colorScheme.surfaceVariant,
                 title = "Privacy & Terms",
                 subtitle = "No login required • All processing is strictly client-side",
                 onClick = {
@@ -193,14 +201,14 @@ fun SettingsScreen(
 
             SettingsClickableRow(
                 icon = Icons.Default.Info,
-                iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                stampColor = MaterialTheme.colorScheme.surfaceVariant,
                 title = "Version",
                 subtitle = "1.0.0 (Production Release)",
                 onClick = {}
             )
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
@@ -209,26 +217,24 @@ private fun SettingsSection(
     title: String,
     content: @Composable () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        NeoBadge(
             text = title,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = CoralPrimary
+            backgroundColor = NeoYellow,
+            textColor = Color(0xFF141416),
+            fontSize = 9,
+            shadowOffset = 1.dp
         )
 
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(12.dp)
-                ),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        NeoCard(
+            modifier = Modifier.fillMaxWidth(),
+            backgroundColor = MaterialTheme.colorScheme.surface,
+            borderWidth = 1.5.dp,
+            shadowOffset = 2.5.dp,
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(vertical = 4.dp)
         ) {
-            Column(modifier = Modifier.padding(vertical = 2.dp)) {
+            Column {
                 content()
             }
         }
@@ -238,7 +244,7 @@ private fun SettingsSection(
 @Composable
 private fun SettingsToggleRow(
     icon: ImageVector,
-    iconTint: Color,
+    stampColor: Color,
     title: String,
     subtitle: String,
     checked: Boolean,
@@ -253,19 +259,36 @@ private fun SettingsToggleRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // Stamp Box
         Box(
             modifier = Modifier
                 .size(28.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(iconTint.copy(alpha = 0.12f)),
+                .background(stampColor)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color(0xFF141416),
+                modifier = Modifier.size(16.dp)
+            )
         }
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Text(text = subtitle, fontSize = 10.sp, lineHeight = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = title,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                fontSize = 10.sp,
+                lineHeight = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         Switch(
@@ -274,7 +297,11 @@ private fun SettingsToggleRow(
             modifier = Modifier.testTag(testTag),
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
-                checkedTrackColor = CoralPrimary
+                checkedTrackColor = NeoCoral,
+                uncheckedThumbColor = Color(0xFF141416),
+                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                checkedBorderColor = MaterialTheme.colorScheme.outline,
+                uncheckedBorderColor = MaterialTheme.colorScheme.outline
             )
         )
     }
@@ -283,7 +310,7 @@ private fun SettingsToggleRow(
 @Composable
 private fun SettingsClickableRow(
     icon: ImageVector,
-    iconTint: Color,
+    stampColor: Color,
     title: String,
     subtitle: String,
     onClick: () -> Unit,
@@ -302,15 +329,31 @@ private fun SettingsClickableRow(
             modifier = Modifier
                 .size(28.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(iconTint.copy(alpha = 0.12f)),
+                .background(stampColor)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color(0xFF141416),
+                modifier = Modifier.size(16.dp)
+            )
         }
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Text(text = subtitle, fontSize = 10.sp, lineHeight = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = title,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                fontSize = 10.sp,
+                lineHeight = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

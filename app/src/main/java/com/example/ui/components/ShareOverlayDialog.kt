@@ -452,7 +452,7 @@ fun ShareOverlayDialog(
                                 )
 
                                 Text(
-                                    text = "Re-encoding ensures seamless editing in Alight Motion, CapCut & Gallery",
+                                    text = "Direct high-speed download without watermark to Gallery",
                                     fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center,
@@ -492,15 +492,10 @@ fun ShareOverlayDialog(
                                 )
 
                                 if (!modalState.info.isPhotoPost) {
-                                    val compatibilityBadge = if (modalState.isCompatibilityReencoded) {
-                                        "Universal H.264 CFR • Compatible with Alight Motion & CapCut"
-                                    } else {
-                                        modalState.encodingNote ?: "Ready to watch & edit"
-                                    }
                                     Text(
-                                        text = compatibilityBadge,
+                                        text = "Saved directly to gallery",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = if (modalState.isCompatibilityReencoded) TealAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 10.sp
                                     )
                                 }
